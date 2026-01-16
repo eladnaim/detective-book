@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Download, Lock, Pencil, X, Save } from "lucide-react";
+import { Loader2, Download, Lock, Pencil, X, Save, Trash2 } from "lucide-react";
 
 interface User {
     id: number;
@@ -24,6 +24,7 @@ export default function AdminPage() {
     // Edit State
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [isSaving, setIsSaving] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     async function handleLogin(e: React.FormEvent) {
         e.preventDefault();
@@ -74,6 +75,30 @@ export default function AdminPage() {
             alert("שגיאה בשמירת הנתונים");
         } finally {
             setIsSaving(false);
+        }
+    }
+
+    async function handleDeleteUser() {
+        if (!editingUser || !window.confirm("האם אתה בטוח שברצונך למחוק משתמש זה? פעולה זו אינה הפיכה.")) return;
+
+        setIsDeleting(true);
+
+        try {
+            const res = await fetch("/api/admin/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ password, id: editingUser.id }),
+            });
+
+            if (!res.ok) throw new Error("Delete failed");
+
+            // Remove locally
+            setUsers(users.filter(u => u.id !== editingUser.id));
+            setEditingUser(null);
+        } catch (err) {
+            alert("שגיאה במחיקת המשתמש");
+        } finally {
+            setIsDeleting(false);
         }
     }
 
@@ -271,13 +296,24 @@ export default function AdminPage() {
                                 />
                             </div>
 
-                            <button
-                                type="submit"
-                                disabled={isSaving}
-                                className="w-full bg-white text-black font-bold py-2 rounded hover:bg-neutral-200 flex items-center justify-center gap-2"
-                            >
-                                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Save className="w-4 h-4" /> שמור שינויים</>}
-                            </button>
+                            <div className="flex gap-4 pt-2 border-t border-neutral-800 mt-4">
+                                <button
+                                    type="button"
+                                    onClick={handleDeleteUser}
+                                    disabled={isDeleting}
+                                    className="flex-1 bg-red-600/20 text-red-500 font-bold py-2 rounded hover:bg-red-600/30 flex items-center justify-center gap-2 transition-colors"
+                                >
+                                    {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Trash2 className="w-4 h-4" /> מחק משתמש</>}
+                                </button>
+
+                                <button
+                                    type="submit"
+                                    disabled={isSaving}
+                                    className="flex-[2] bg-white text-black font-bold py-2 rounded hover:bg-neutral-200 flex items-center justify-center gap-2"
+                                >
+                                    {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Save className="w-4 h-4" /> שמור שינויים</>}
+                                </button>
+                            </div>
                         </form>
                     </div>
                 </div>

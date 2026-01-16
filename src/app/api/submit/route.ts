@@ -7,7 +7,7 @@ export async function POST(request: Request) {
         const body = await request.json();
         const { fullName, phone, email, city, zip, address } = body;
 
-        const headersList = headers();
+        const headersList = await headers();
         const forwardedFor = headersList.get("x-forwarded-for");
         const ip = forwardedFor ? forwardedFor.split(',')[0] : "unknown";
 
