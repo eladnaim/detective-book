@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-heebo), system-ui, sans-serif;
+  --font-serif: var(--font-assistant), serif;
+}
+
+:root {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  
+  --primary: #ffffff;
+  --primary-foreground: #000000;
+  
+  --secondary: #262626;
+  --secondary-foreground: #ffffff;
+  
+  --muted: #404040;
+  --muted-foreground: #a3a3a3;
+  
+  --accent: #ffffff;
+  --accent-foreground: #000000;
+  
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  
+  --border: #262626;
+  --input: #262626;
+  --ring: #ffffff;
+  
+  --radius: 0.5rem;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  direction: rtl;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
