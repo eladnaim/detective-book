@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Download, Lock } from "lucide-react";
+import { Loader2, Download, Lock, Pencil, X, Save } from "lucide-react";
 
 interface User {
     id: number;
@@ -20,6 +20,10 @@ export default function AdminPage() {
     const [users, setUsers] = useState<User[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState("");
+
+    // Edit State
+    const [editingUser, setEditingUser] = useState<User | null>(null);
+    const [isSaving, setIsSaving] = useState(false);
 
     async function handleLogin(e: React.FormEvent) {
         e.preventDefault();
@@ -45,6 +49,31 @@ export default function AdminPage() {
             setError("סיסמה שגויה או שגיאת שרת");
         } finally {
             setIsLoading(false);
+        }
+    }
+
+    async function handleSaveUser(e: React.FormEvent) {
+        e.preventDefault();
+        if (!editingUser) return;
+
+        setIsSaving(true);
+
+        try {
+            const res = await fetch("/api/admin/edit", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ password, ...editingUser }),
+            });
+
+            if (!res.ok) throw new Error("Update failed");
+
+            // Update local state
+            setUsers(users.map(u => u.id === editingUser.id ? editingUser : u));
+            setEditingUser(null);
+        } catch (err) {
+            alert("שגיאה בשמירת הנתונים");
+        } finally {
+            setIsSaving(false);
         }
     }
 
@@ -137,6 +166,7 @@ export default function AdminPage() {
                                     <th className="p-4 font-medium text-neutral-300">כתובת</th>
                                     <th className="p-4 font-medium text-neutral-300">מיקוד</th>
                                     <th className="p-4 font-medium text-neutral-300">תאריך</th>
+                                    <th className="p-4 font-medium text-neutral-300">פעולות</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-neutral-800">
@@ -151,6 +181,15 @@ export default function AdminPage() {
                                         <td className="p-4 text-neutral-400 font-mono text-xs">
                                             {new Date(user.created_at).toLocaleDateString('he-IL')}
                                         </td>
+                                        <td className="p-4">
+                                            <button
+                                                onClick={() => setEditingUser(user)}
+                                                className="text-neutral-400 hover:text-white transition-colors"
+                                                title="ערוך"
+                                            >
+                                                <Pencil className="w-4 h-4" />
+                                            </button>
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -163,6 +202,86 @@ export default function AdminPage() {
                     )}
                 </div>
             </div>
+
+            {/* Edit Modal */}
+            {editingUser && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                    <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 w-full max-w-lg space-y-6">
+                        <div className="flex justify-between items-center">
+                            <h2 className="text-xl font-bold">עריכת פרטים</h2>
+                            <button onClick={() => setEditingUser(null)} className="text-neutral-400 hover:text-white">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleSaveUser} className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm text-neutral-400 mb-1">שם מלא</label>
+                                    <input
+                                        value={editingUser.name}
+                                        onChange={e => setEditingUser({ ...editingUser, name: e.target.value })}
+                                        className="w-full bg-black border border-neutral-700 rounded px-3 py-2"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-neutral-400 mb-1">טלפון</label>
+                                    <input
+                                        value={editingUser.phone}
+                                        onChange={e => setEditingUser({ ...editingUser, phone: e.target.value })}
+                                        className="w-full bg-black border border-neutral-700 rounded px-3 py-2"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm text-neutral-400 mb-1">אימייל</label>
+                                <input
+                                    value={editingUser.email || ''}
+                                    onChange={e => setEditingUser({ ...editingUser, email: e.target.value })}
+                                    className="w-full bg-black border border-neutral-700 rounded px-3 py-2"
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm text-neutral-400 mb-1">עיר</label>
+                                    <input
+                                        value={editingUser.city}
+                                        onChange={e => setEditingUser({ ...editingUser, city: e.target.value })}
+                                        className="w-full bg-black border border-neutral-700 rounded px-3 py-2"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-neutral-400 mb-1">מיקוד</label>
+                                    <input
+                                        value={editingUser.zip || ''}
+                                        onChange={e => setEditingUser({ ...editingUser, zip: e.target.value })}
+                                        className="w-full bg-black border border-neutral-700 rounded px-3 py-2"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm text-neutral-400 mb-1">כתובת</label>
+                                <input
+                                    value={editingUser.address}
+                                    onChange={e => setEditingUser({ ...editingUser, address: e.target.value })}
+                                    className="w-full bg-black border border-neutral-700 rounded px-3 py-2"
+                                />
+                            </div>
+
+                            <button
+                                type="submit"
+                                disabled={isSaving}
+                                className="w-full bg-white text-black font-bold py-2 rounded hover:bg-neutral-200 flex items-center justify-center gap-2"
+                            >
+                                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Save className="w-4 h-4" /> שמור שינויים</>}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
