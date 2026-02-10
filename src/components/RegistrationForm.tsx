@@ -82,7 +82,6 @@ export function RegistrationForm() {
                         name="phone"
                         type="tel"
                         required
-                        pattern="[0-9-]*"
                         className="w-full bg-neutral-900 border border-neutral-800 rounded-md px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-white/20 transition-all placeholder:text-neutral-600"
                         placeholder="050-0000000"
                     />
