@@ -1,10 +1,9 @@
 "use client";
-
-import { useState } from "react";
-import { Loader2, Download, Lock, Pencil, X, Save, Trash2 } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Loader2, Download, Lock, Pencil, X, Save, Trash2, RefreshCcw } from "lucide-react";
 
 interface User {
-    id: number;
+    id: string | number;
     name: string;
     phone: string;
     email: string;
@@ -20,37 +19,62 @@ export default function AdminPage() {
     const [users, setUsers] = useState<User[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState("");
+    const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
 
     // Edit State
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [isSaving, setIsSaving] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
 
-    async function handleLogin(e: React.FormEvent) {
-        e.preventDefault();
-        setIsLoading(true);
-        setError("");
+    const fetchUsers = useCallback(async (currentPassword: string) => {
+        if (!currentPassword) return;
 
         try {
             const res = await fetch("/api/admin/data", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ password }),
+                body: JSON.stringify({ password: currentPassword }),
             });
 
             const data = await res.json();
-
-            if (!res.ok) {
-                throw new Error(data.error || "Login failed");
+            if (res.ok) {
+                setUsers(data.users);
+                setIsAuthenticated(true);
+                setLastRefresh(new Date());
+                localStorage.setItem("admin_pass", currentPassword);
+            } else {
+                if (isAuthenticated) {
+                    setError("החיבור פג, אנא התחבר מחדש");
+                    setIsAuthenticated(false);
+                }
             }
-
-            setUsers(data.users);
-            setIsAuthenticated(true);
-        } catch (err: any) {
-            setError("סיסמה שגויה או שגיאת שרת");
-        } finally {
-            setIsLoading(false);
+        } catch (err) {
+            console.error("Refresh failed");
         }
+    }, [isAuthenticated]);
+
+    // Auto-login & Auto-refresh
+    useEffect(() => {
+        const savedPass = localStorage.getItem("admin_pass");
+        if (savedPass) {
+            setPassword(savedPass);
+            fetchUsers(savedPass);
+        }
+
+        const interval = setInterval(() => {
+            const currentPass = localStorage.getItem("admin_pass");
+            if (currentPass) fetchUsers(currentPass);
+        }, 30000); // Refresh every 30 seconds
+
+        return () => clearInterval(interval);
+    }, [fetchUsers]);
+
+    async function handleLogin(e: React.FormEvent) {
+        e.preventDefault();
+        setIsLoading(true);
+        setError("");
+        await fetchUsers(password);
+        setIsLoading(false);
     }
 
     async function handleSaveUser(e: React.FormEvent) {
@@ -165,18 +189,36 @@ export default function AdminPage() {
         <div className="min-h-screen bg-black text-white p-8">
             <div className="max-w-7xl mx-auto space-y-8">
                 <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                    <div>
-                        <h1 className="text-3xl font-bold">רשימת נרשמים</h1>
-                        <p className="text-neutral-400">סה"כ נרשמים: {users.length}</p>
+                    <div className="flex items-center gap-4">
+                        <div>
+                            <h1 className="text-3xl font-bold">רשימת נרשמים</h1>
+                            <p className="text-neutral-400">סה"כ נרשמים: {users.length}</p>
+                        </div>
+                        <div className="flex items-center gap-2 bg-neutral-900 px-3 py-1 rounded-full border border-neutral-800">
+                            <RefreshCcw className={`w-3 h-3 text-neutral-500 ${isLoading ? 'animate-spin' : ''}`} />
+                            <span className="text-xs text-neutral-500">
+                                עדכון אחרון: {lastRefresh.toLocaleTimeString('he-IL')}
+                            </span>
+                        </div>
                     </div>
 
-                    <button
-                        onClick={downloadCSV}
-                        className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md transition-colors"
-                    >
-                        <Download className="w-4 h-4" />
-                        הורד CSV
-                    </button>
+                    <div className="flex gap-4">
+                        <button
+                            onClick={() => fetchUsers(password)}
+                            disabled={isLoading}
+                            className="flex items-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-white px-4 py-2 rounded-md transition-colors"
+                        >
+                            <RefreshCcw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                            רענן
+                        </button>
+                        <button
+                            onClick={downloadCSV}
+                            className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md transition-colors"
+                        >
+                            <Download className="w-4 h-4" />
+                            הורד CSV
+                        </button>
+                    </div>
                 </div>
 
                 <div className="border border-neutral-800 rounded-lg overflow-hidden bg-neutral-900/50">
