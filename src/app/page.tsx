@@ -11,7 +11,7 @@ export default function Home() {
                         <div className="relative w-[300px] h-[450px] md:w-[400px] md:h-[600px] shadow-[0_0_50px_rgba(255,255,255,0.1)] rounded-lg overflow-hidden transform md:rotate-3 transition-transform hover:rotate-0 duration-500">
                             <Image
                                 src="/book-cover.png"
-                                alt="כריכת הספר חוקר פרטי קוואנטין"
+                                alt="כריכת הספר חוקר פרטי קואנטין"
                                 fill
                                 className="object-cover"
                                 priority
@@ -29,7 +29,7 @@ export default function Home() {
                                 חוקר פרטי
                                 <br />
                                 <span className="text-transparent bg-clip-text bg-gradient-to-l from-white to-neutral-500">
-                                    קוואנטין
+                                    קואנטין
                                 </span>
                             </h1>
                             <p className="text-xl text-neutral-400 max-w-lg mx-auto md:mx-0 leading-relaxed">

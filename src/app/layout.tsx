@@ -9,8 +9,8 @@ const heebo = Heebo({
 });
 
 export const metadata: Metadata = {
-  title: "חוקר פרטי - קוואנטין | הספר מתנה",
-  description: "קבלו את הספר חוקר פרטי קוואנטין במתנה לרגל חגיגות 300 אלף עוקבים",
+  title: "חוקר פרטי - קואנטין | הספר מתנה",
+  description: "קבלו את הספר חוקר פרטי קואנטין במתנה לרגל חגיגות 300 אלף עוקבים",
 };
 
 export default function RootLayout({
