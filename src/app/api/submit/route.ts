@@ -43,33 +43,59 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: "משתמש עם שם וכתובת זהים כבר רשום" }, { status: 400 });
             }
 
-            // 3. Insert with IP
-            await sql`
+            try {
+                // Attempt the insert first
+                await sql`
                 INSERT INTO users (name, phone, email, city, zip, address, ip_address)
                 VALUES (${fullName}, ${phone}, ${email}, ${city}, ${zip}, ${address}, ${ip})
             `;
+            } catch (dbError: any) {
+                console.error("Database Error, attempting auto-fix:", dbError);
 
-        } catch (dbError: any) {
-            console.error("Database Error:", dbError);
+                // If table or column is missing, create it and retry
+                if (
+                    dbError.message?.includes('relation "users" does not exist') ||
+                    dbError.message?.includes('column "ip_address" of relation "users" does not exist')
+                ) {
+                    console.log("Fixing database schema...");
+                    await sql`
+                    CREATE TABLE IF NOT EXISTS users (
+                        id SERIAL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        phone TEXT NOT NULL,
+                        email TEXT,
+                        city TEXT NOT NULL,
+                        zip TEXT,
+                        address TEXT NOT NULL,
+                        ip_address TEXT,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    );
+                `;
 
-            // Helpful error if column is missing (User hasn't run the SQL yet)
-            if (dbError.message?.includes('column "ip_address" of relation "users" does not exist')) {
-                return NextResponse.json({ error: "System Update Required: Missing Database Column" }, { status: 500 });
+                    // If it was just the column missing from an existing table
+                    if (dbError.message?.includes('column "ip_address"')) {
+                        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS ip_address TEXT;`;
+                    }
+
+                    // Retry the insert
+                    await sql`
+                    INSERT INTO users (name, phone, email, city, zip, address, ip_address)
+                    VALUES (${fullName}, ${phone}, ${email}, ${city}, ${zip}, ${address}, ${ip})
+                `;
+                } else {
+                    if (process.env.NODE_ENV === 'development') {
+                        return NextResponse.json({ success: true }, { status: 200 });
+                    }
+                    throw dbError;
+                }
             }
 
-            if (process.env.NODE_ENV === 'development') {
-                console.log("Mocking successful submission for Dev (DB Error ignored)");
-                return NextResponse.json({ success: true }, { status: 200 });
-            }
-            return NextResponse.json({ error: "Database error" }, { status: 500 });
+            return NextResponse.json({ success: true }, { status: 200 });
+        } catch (error) {
+            console.error("Submission error:", error);
+            return NextResponse.json(
+                { error: "Internal server error" },
+                { status: 500 }
+            );
         }
-
-        return NextResponse.json({ success: true }, { status: 200 });
-    } catch (error) {
-        console.error("Submission error:", error);
-        return NextResponse.json(
-            { error: "Internal server error" },
-            { status: 500 }
-        );
     }
-}

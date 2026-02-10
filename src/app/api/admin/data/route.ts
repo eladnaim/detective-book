@@ -14,7 +14,25 @@ export async function POST(request: Request) {
         try {
             const { rows } = await sql`SELECT * FROM users ORDER BY created_at DESC`;
             return NextResponse.json({ users: rows }, { status: 200 });
-        } catch (dbError) {
+        } catch (dbError: any) {
+            // If table missing, create it and return empty list
+            if (dbError.message?.includes('relation "users" does not exist')) {
+                await sql`
+                    CREATE TABLE IF NOT EXISTS users (
+                        id SERIAL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        phone TEXT NOT NULL,
+                        email TEXT,
+                        city TEXT NOT NULL,
+                        zip TEXT,
+                        address TEXT NOT NULL,
+                        ip_address TEXT,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    );
+                `;
+                return NextResponse.json({ users: [] }, { status: 200 });
+            }
+
             // Fallback for dev/no-db
             console.error("Database Error:", dbError);
             if (process.env.NODE_ENV === 'development') {
