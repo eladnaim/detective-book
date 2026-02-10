@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
+import { db } from "@/lib/firebase";
+import { collection, getDocs, query, orderBy } from "firebase/firestore";
 
 export async function POST(request: Request) {
     try {
@@ -10,40 +12,40 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        // Fetch users
+        const allUsers: any[] = [];
+        const userIds = new Set();
+
+        // 1. Fetch from Firebase
+        try {
+            const q = query(collection(db, "quentin_subscribers"), orderBy("created_at", "desc"));
+            const querySnapshot = await getDocs(q);
+            querySnapshot.forEach((doc) => {
+                const data = doc.data();
+                const user = { id: doc.id, ...data };
+                allUsers.push(user);
+                // Track phone+name to avoid visible duplicates if both DBs work
+                userIds.add(`${data.phone}-${data.name}`);
+            });
+        } catch (fbError) {
+            console.error("Firebase Admin Fetch Error:", fbError);
+        }
+
+        // 2. Fetch from Postgres
         try {
             const { rows } = await sql`SELECT * FROM users ORDER BY created_at DESC`;
-            return NextResponse.json({ users: rows }, { status: 200 });
+            rows.forEach(row => {
+                if (!userIds.has(`${row.phone}-${row.name}`)) {
+                    allUsers.push({
+                        ...row,
+                        id: `pg-${row.id}`
+                    });
+                }
+            });
         } catch (dbError: any) {
-            // If table missing, create it and return empty list
-            if (dbError.message?.includes('relation "users" does not exist')) {
-                await sql`
-                    CREATE TABLE IF NOT EXISTS users (
-                        id SERIAL PRIMARY KEY,
-                        name TEXT NOT NULL,
-                        phone TEXT NOT NULL,
-                        email TEXT,
-                        city TEXT NOT NULL,
-                        zip TEXT,
-                        address TEXT NOT NULL,
-                        ip_address TEXT,
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                    );
-                `;
-                return NextResponse.json({ users: [] }, { status: 200 });
-            }
-
-            // Fallback for dev/no-db
-            console.error("Database Error:", dbError);
-            if (process.env.NODE_ENV === 'development') {
-                return NextResponse.json({
-                    users: [
-                        { id: 1, name: "דוגמה ישראל", phone: "050-0000000", email: "test@test.com", city: "תל אביב", address: "הרצל 1", zip: "123456", created_at: new Date().toISOString() }
-                    ]
-                }, { status: 200 });
-            }
-            return NextResponse.json({ error: "Database error" }, { status: 500 });
+            console.error("Postgres Admin Fetch Error:", dbError);
         }
+
+        return NextResponse.json({ users: allUsers }, { status: 200 });
 
     } catch (error) {
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
