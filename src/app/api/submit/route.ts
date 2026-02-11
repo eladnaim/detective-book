@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { headers } from "next/headers";
 import { db } from "@/lib/firebase";
-import { collection, addDoc } from "firebase/firestore";
+import { collection, addDoc, query, where, getDocs } from "firebase/firestore";
 
 export async function POST(request: Request) {
     try {
@@ -16,15 +16,45 @@ export async function POST(request: Request) {
         // Basic validation
         if (!fullName || !phone || !city || !address) {
             return NextResponse.json(
-                { error: "Missing required fields" },
+                { error: "חסרים שדות חובה" },
                 { status: 400 }
             );
+        }
+
+        // --- DUPLICATE CHECK ---
+        // 1. Check Firebase
+        try {
+            const usersRef = collection(db, "quentin_subscribers");
+            const q = query(usersRef, where("phone", "==", phone));
+            const querySnapshot = await getDocs(q);
+            if (!querySnapshot.empty) {
+                return NextResponse.json(
+                    { error: "מספר טלפון זה כבר רשום במערכת" },
+                    { status: 409 }
+                );
+            }
+        } catch (fbCheckError) {
+            console.error("Firebase Check Error:", fbCheckError);
+        }
+
+        // 2. Check Postgres
+        try {
+            const result = await sql`SELECT id FROM users WHERE phone = ${phone} LIMIT 1`;
+            if (result.rows.length > 0) {
+                return NextResponse.json(
+                    { error: "מספר טלפון זה כבר רשום במערכת" },
+                    { status: 409 }
+                );
+            }
+        } catch (pgCheckError) {
+            console.error("Postgres Check Error:", pgCheckError);
         }
 
         let savedToPostgres = false;
         let savedToFirebase = false;
 
-        // 1. Firebase Backup (Primary for reliability now)
+        // --- DATA SAVING ---
+        // 1. Firebase (Primary Backup)
         try {
             const usersRef = collection(db, "quentin_subscribers");
             await addDoc(usersRef, {
@@ -39,10 +69,10 @@ export async function POST(request: Request) {
             });
             savedToFirebase = true;
         } catch (fbError) {
-            console.error("Firebase Backup Error:", fbError);
+            console.error("Firebase Save Error:", fbError);
         }
 
-        // 2. Vercel Postgres (Attempt with auto-fix)
+        // 2. Vercel Postgres
         try {
             await sql`
                 INSERT INTO users (name, phone, email, city, zip, address, ip_address)
@@ -50,12 +80,10 @@ export async function POST(request: Request) {
             `;
             savedToPostgres = true;
         } catch (dbError: any) {
-            console.error("Postgres Error, attempting auto-fix:", dbError);
+            console.error("Postgres Save Error:", dbError);
 
-            if (
-                dbError.message?.includes('relation "users" does not exist') ||
-                dbError.message?.includes('column "ip_address"')
-            ) {
+            // Auto-recovery for table issues
+            if (dbError.message?.includes('relation "users" does not exist')) {
                 try {
                     await sql`
                         CREATE TABLE IF NOT EXISTS users (
@@ -70,27 +98,27 @@ export async function POST(request: Request) {
                             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                         );
                     `;
-                    if (dbError.message?.includes('column "ip_address"')) {
-                        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS ip_address TEXT;`;
-                    }
                     await sql`
                         INSERT INTO users (name, phone, email, city, zip, address, ip_address)
                         VALUES (${fullName}, ${phone}, ${email}, ${city}, ${zip}, ${address}, ${ip})
                     `;
                     savedToPostgres = true;
-                } catch (retryError) {
-                    console.error("Postgres Retry failed:", retryError);
+                } catch (recoveryError) {
+                    console.error("Postgres Recovery failed:", recoveryError);
                 }
             }
         }
 
         if (savedToFirebase || savedToPostgres) {
-            return NextResponse.json({ success: true, backup: savedToFirebase }, { status: 200 });
+            return NextResponse.json({
+                success: true,
+                source: savedToPostgres ? "postgres" : "firebase"
+            }, { status: 200 });
         }
 
-        return NextResponse.json({ error: "אירעה שגיאה בשמירת הנתונים" }, { status: 500 });
+        return NextResponse.json({ error: "אירעה שגיאה בשמירת הנתונים. אנא נסה שנית." }, { status: 500 });
     } catch (error) {
-        console.error("Submission error:", error);
+        console.error("Critical submission error:", error);
         return NextResponse.json(
             { error: "Internal server error" },
             { status: 500 }

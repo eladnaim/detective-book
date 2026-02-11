@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
+import { db } from "@/lib/firebase";
+import { doc, deleteDoc } from "firebase/firestore";
 
 export async function POST(request: Request) {
     try {
@@ -16,14 +18,21 @@ export async function POST(request: Request) {
         }
 
         try {
-            await sql`DELETE FROM users WHERE id = ${id}`;
+            const stringId = String(id);
+
+            if (stringId.startsWith('pg-')) {
+                // Postgres Delete
+                const realId = stringId.replace('pg-', '');
+                await sql`DELETE FROM users WHERE id = ${realId}`;
+            } else {
+                // Firebase Delete
+                const userRef = doc(db, "quentin_subscribers", stringId);
+                await deleteDoc(userRef);
+            }
+
             return NextResponse.json({ success: true }, { status: 200 });
         } catch (dbError) {
             console.error("Database Delete Error:", dbError);
-            // Dev fallback
-            if (process.env.NODE_ENV === 'development') {
-                return NextResponse.json({ success: true }, { status: 200 });
-            }
             return NextResponse.json({ error: "Database delete failed" }, { status: 500 });
         }
 

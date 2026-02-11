@@ -26,13 +26,15 @@ export function RegistrationForm() {
                 },
             });
 
+            const result = await response.json();
+
             if (!response.ok) {
-                throw new Error("שגיאה בשליחת הטופס, אנא נסו שנית");
+                throw new Error(result.error || "שגיאה בשליחת הטופס, אנא נסו שנית");
             }
 
             setIsSuccess(true);
-        } catch (err) {
-            setError("אירעה שגיאה, אנא נסו שוב מאוחר יותר");
+        } catch (err: any) {
+            setError(err.message || "אירעה שגיאה, אנא נסו שוב מאוחר יותר");
         } finally {
             setIsLoading(false);
         }
