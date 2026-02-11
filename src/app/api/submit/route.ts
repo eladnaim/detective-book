@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { headers } from "next/headers";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, query, where, getDocs } from "firebase/firestore";
+import { collection, addDoc, query, where, getDocs, or } from "firebase/firestore";
 
 // Helper for timeouts
 const withTimeout = (promise: Promise<any>, timeoutMs: number) => {
@@ -16,10 +16,11 @@ export async function POST(request: Request) {
     const startTime = Date.now();
     try {
         const body = await request.json().catch(() => ({}));
-        const { fullName, phone: rawPhone, email, city, zip, address } = body;
+        const { fullName, phone: rawPhone, email: rawEmail, city, zip, address } = body;
 
         // Normalize phone for comparison
         const phone = String(rawPhone || "").replace(/\D/g, "");
+        const email = String(rawEmail || "").trim().toLowerCase();
 
         const headersList = await headers();
         const ip = headersList.get("x-forwarded-for")?.split(',')[0] || "unknown";
@@ -28,30 +29,55 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "חסרים שדות חובה" }, { status: 400 });
         }
 
-        // 1. DUPLICATE CHECK - Run in parallel but respond as soon as we find a match
+        // 1. IMPROVED DUPLICATE CHECK - Check Phone OR Email
         try {
             const checkResults = await Promise.all([
+                // Check Firebase for Phone or Email
                 (async () => {
-                    const q = query(collection(db, "quentin_subscribers"), where("phone", "==", phone));
-                    const snap = await getDocs(q);
-                    return !snap.empty;
+                    const usersRef = collection(db, "quentin_subscribers");
+
+                    // Check phone first
+                    const qPhone = query(usersRef, where("phone", "==", phone));
+                    const snapPhone = await getDocs(qPhone);
+                    if (!snapPhone.empty) return "phone_exists";
+
+                    // Check email if provided
+                    if (email) {
+                        const qEmail = query(usersRef, where("email", "==", email));
+                        const snapEmail = await getDocs(qEmail);
+                        if (!snapEmail.empty) return "email_exists";
+                    }
+                    return null;
                 })(),
+                // Check Postgres for Phone or Email
                 (async () => {
                     try {
-                        const res = await sql`SELECT id FROM users WHERE phone = ${phone} LIMIT 1`;
-                        return res.rows.length > 0;
-                    } catch (e) { return false; }
+                        // Check phone
+                        const resPhone = await sql`SELECT id FROM users WHERE phone = ${phone} LIMIT 1`;
+                        if (resPhone.rows.length > 0) return "phone_exists";
+
+                        // Check email
+                        if (email) {
+                            const resEmail = await sql`SELECT id FROM users WHERE email = ${email} LIMIT 1`;
+                            if (resEmail.rows.length > 0) return "email_exists";
+                        }
+                        return null;
+                    } catch (e) { return null; }
                 })()
             ]);
 
-            if (checkResults.some(r => r === true)) {
+            const reason = checkResults.find(r => r !== null);
+            if (reason === "phone_exists") {
                 return NextResponse.json({ error: "מספר טלפון זה כבר רשום במערכת" }, { status: 409 });
             }
+            if (reason === "email_exists") {
+                return NextResponse.json({ error: "כתובת אימייל זו כבר רשומה במערכת" }, { status: 409 });
+            }
         } catch (e) {
-            console.error("Check error, continuing to save anyway to avoid blocking user");
+            console.error("Check error:", e);
         }
 
-        // 2. SAVE OPERATION - Parallel execution
+        // 2. SAVE OPERATION
         const firebaseSave = async () => {
             const usersRef = collection(db, "quentin_subscribers");
             await addDoc(usersRef, {
@@ -82,8 +108,6 @@ export async function POST(request: Request) {
             return "postgres";
         };
 
-        // THE MAGIC: Use Promise.any to respond as soon as the FIRST database succeeds
-        // This makes the registration feel "instant" to the user.
         try {
             const fastestSuccess = await Promise.any([
                 withTimeout(firebaseSave(), 5000),
@@ -91,8 +115,6 @@ export async function POST(request: Request) {
             ]);
 
             const duration = Date.now() - startTime;
-            console.log(`Lightning Fast Registration: Responsive in ${duration}ms via ${fastestSuccess}`);
-
             return NextResponse.json({
                 success: true,
                 fastest: fastestSuccess,
@@ -100,8 +122,8 @@ export async function POST(request: Request) {
             }, { status: 200 });
 
         } catch (allErrors) {
-            console.error("All storage providers failed/timed out", allErrors);
-            return NextResponse.json({ error: "שגיאה בשמירת הנתונים. המערכת תחת עומס." }, { status: 500 });
+            console.error("All storage failed", allErrors);
+            return NextResponse.json({ error: "שגיאה בשמירת הנתונים." }, { status: 500 });
         }
 
     } catch (error) {
