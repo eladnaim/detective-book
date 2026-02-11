@@ -89,8 +89,6 @@ export default function AdminPage() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     password,
-                    id: editingUser.id,
-                    pg_id: (editingUser as any).pg_id,
                     ...editingUser
                 }),
             });
@@ -166,7 +164,7 @@ export default function AdminPage() {
 
     if (!isAuthenticated) {
         return (
-            <div className="min-h-screen bg-black flex items-center justify-center p-4">
+            <div className="min-h-screen bg-black flex items-center justify-center p-4" suppressHydrationWarning>
                 <form onSubmit={handleLogin} className="w-full max-w-sm bg-neutral-900 p-8 rounded-xl border border-neutral-800 space-y-6">
                     <div className="text-center space-y-2">
                         <Lock className="w-12 h-12 text-white mx-auto" />
@@ -195,7 +193,7 @@ export default function AdminPage() {
     }
 
     return (
-        <div className="min-h-screen bg-black text-white p-8">
+        <div className="min-h-screen bg-black text-white p-8" suppressHydrationWarning>
             <div className="max-w-7xl mx-auto space-y-8">
                 <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                     <div className="flex items-center gap-4">
