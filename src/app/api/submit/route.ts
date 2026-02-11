@@ -12,17 +12,38 @@ const withTimeout = (promise: Promise<any>, timeoutMs: number) => {
     ]);
 };
 
+// Simple Rate Limiting (In-memory - resets on server restart/redeploy)
+const rateLimitMap = new Map<string, { count: number, lastReset: number }>();
+const RATE_LIMIT_WINDOW = 60 * 60 * 1000; // 1 hour
+const MAX_REQUESTS = 5; // 5 registrations per hour per IP
+
 export async function POST(request: Request) {
     const startTime = Date.now();
     try {
+        const headersList = await headers();
+        const ip = headersList.get("x-forwarded-for")?.split(',')[0] || "unknown";
+
+        // Rate Limit Check
+        const now = Date.now();
+        const userLimit = rateLimitMap.get(ip) || { count: 0, lastReset: now };
+
+        if (now - userLimit.lastReset > RATE_LIMIT_WINDOW) {
+            userLimit.count = 0;
+            userLimit.lastReset = now;
+        }
+
+        if (userLimit.count >= MAX_REQUESTS) {
+            return NextResponse.json({ error: "חורג ממכסת הרישומים לשעה זו. נסה שוב מאוחר יותר." }, { status: 429 });
+        }
+
+        userLimit.count++;
+        rateLimitMap.set(ip, userLimit);
+
         const body = await request.json().catch(() => ({}));
         const { fullName, phone: rawPhone, email: rawEmail, city, zip, address } = body;
 
         const phone = String(rawPhone || "").replace(/\D/g, "");
         const email = String(rawEmail || "").trim().toLowerCase();
-
-        const headersList = await headers();
-        const ip = headersList.get("x-forwarded-for")?.split(',')[0] || "unknown";
 
         if (!fullName || !phone || !city || !address) {
             return NextResponse.json({ error: "חסרים שדות חובה" }, { status: 400 });
