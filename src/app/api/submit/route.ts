@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { headers } from "next/headers";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, query, where, getDocs, or } from "firebase/firestore";
+import { collection, addDoc, query, where, getDocs } from "firebase/firestore";
 
-// Helper for timeouts
+// Helper for timeouts - Strict 4 seconds for checks, 6 seconds for saves
 const withTimeout = (promise: Promise<any>, timeoutMs: number) => {
     return Promise.race([
         promise,
@@ -18,7 +18,6 @@ export async function POST(request: Request) {
         const body = await request.json().catch(() => ({}));
         const { fullName, phone: rawPhone, email: rawEmail, city, zip, address } = body;
 
-        // Normalize phone for comparison
         const phone = String(rawPhone || "").replace(/\D/g, "");
         const email = String(rawEmail || "").trim().toLowerCase();
 
@@ -29,44 +28,42 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "חסרים שדות חובה" }, { status: 400 });
         }
 
-        // 1. IMPROVED DUPLICATE CHECK - Check Phone OR Email
+        // 1. Parallel Duplicate Check with TIMEOUTS
+        // If checks hang, we skip them to allow saving (better to have a duplicate than a blocked user)
         try {
-            const checkResults = await Promise.all([
-                // Check Firebase for Phone or Email
-                (async () => {
+            const checkResults = await Promise.allSettled([
+                withTimeout((async () => {
                     const usersRef = collection(db, "quentin_subscribers");
-
-                    // Check phone first
                     const qPhone = query(usersRef, where("phone", "==", phone));
                     const snapPhone = await getDocs(qPhone);
                     if (!snapPhone.empty) return "phone_exists";
 
-                    // Check email if provided
                     if (email) {
                         const qEmail = query(usersRef, where("email", "==", email));
                         const snapEmail = await getDocs(qEmail);
                         if (!snapEmail.empty) return "email_exists";
                     }
                     return null;
-                })(),
-                // Check Postgres for Phone or Email
-                (async () => {
+                })(), 3000), // 3s timeout for FB check
+                withTimeout((async () => {
                     try {
-                        // Check phone
                         const resPhone = await sql`SELECT id FROM users WHERE phone = ${phone} LIMIT 1`;
                         if (resPhone.rows.length > 0) return "phone_exists";
 
-                        // Check email
                         if (email) {
                             const resEmail = await sql`SELECT id FROM users WHERE email = ${email} LIMIT 1`;
                             if (resEmail.rows.length > 0) return "email_exists";
                         }
                         return null;
                     } catch (e) { return null; }
-                })()
+                })(), 3000) // 3s timeout for PG check
             ]);
 
-            const reason = checkResults.find(r => r !== null);
+            const reason = checkResults
+                .filter(r => r.status === 'fulfilled')
+                .map(r => (r as PromiseFulfilledResult<string | null>).value)
+                .find(v => v !== null);
+
             if (reason === "phone_exists") {
                 return NextResponse.json({ error: "מספר טלפון זה כבר רשום במערכת" }, { status: 409 });
             }
@@ -74,10 +71,10 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: "כתובת אימייל זו כבר רשומה במערכת" }, { status: 409 });
             }
         } catch (e) {
-            console.error("Check error:", e);
+            console.error("Duplicate check skipped due to error or timeout");
         }
 
-        // 2. SAVE OPERATION
+        // 2. Parallel Save
         const firebaseSave = async () => {
             const usersRef = collection(db, "quentin_subscribers");
             await addDoc(usersRef, {
@@ -108,10 +105,11 @@ export async function POST(request: Request) {
             return "postgres";
         };
 
+        // Use Promise.any - first one to succeed wins. If both fail/timeout, we error.
         try {
             const fastestSuccess = await Promise.any([
-                withTimeout(firebaseSave(), 5000),
-                withTimeout(postgresSave(), 5000)
+                withTimeout(firebaseSave(), 6000),
+                withTimeout(postgresSave(), 6000)
             ]);
 
             const duration = Date.now() - startTime;
@@ -122,8 +120,8 @@ export async function POST(request: Request) {
             }, { status: 200 });
 
         } catch (allErrors) {
-            console.error("All storage failed", allErrors);
-            return NextResponse.json({ error: "שגיאה בשמירת הנתונים." }, { status: 500 });
+            console.error("Critical: All storage failed or timed out", allErrors);
+            return NextResponse.json({ error: "המערכת תחת עומס. הרישום נכשל, אנא נסה שוב בעוד דקה." }, { status: 500 });
         }
 
     } catch (error) {
