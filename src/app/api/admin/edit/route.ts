@@ -3,10 +3,17 @@ import { sql } from "@vercel/postgres";
 import { db } from "@/lib/firebase";
 import { doc, updateDoc } from "firebase/firestore";
 
+// Helper for timeouts
+const withTimeout = (promise: Promise<any>, timeoutMs: number) => {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), timeoutMs))
+    ]);
+};
+
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-        // Validate admin password
         const { password, id, name, phone, email, city, address, zip } = body;
         const adminPassword = process.env.ADMIN_PASSWORD;
 
@@ -24,7 +31,7 @@ export async function POST(request: Request) {
             if (stringId.startsWith('pg-')) {
                 // Postgres Update
                 const realId = stringId.replace('pg-', '');
-                await sql`
+                await withTimeout(sql`
                     UPDATE users 
                     SET name = ${name}, 
                         phone = ${phone}, 
@@ -33,24 +40,26 @@ export async function POST(request: Request) {
                         address = ${address}, 
                         zip = ${zip}
                     WHERE id = ${realId}
-                `;
+                `, 8000);
             } else {
                 // Firebase Update
                 const userRef = doc(db, "quentin_subscribers", stringId);
-                await updateDoc(userRef, {
+                await withTimeout(updateDoc(userRef, {
                     name,
                     phone,
                     email: email || "",
                     city,
                     address,
                     zip: zip || ""
-                });
+                }), 8000);
             }
 
             return NextResponse.json({ success: true }, { status: 200 });
-        } catch (dbError) {
+        } catch (dbError: any) {
             console.error("Database Update Error:", dbError);
-            return NextResponse.json({ error: "Database update failed" }, { status: 500 });
+            return NextResponse.json({
+                error: dbError.message === "Timeout" ? "המערכת איטית, אנא נסה שוב" : "פעולת העדכון נכשלה"
+            }, { status: 500 });
         }
 
     } catch (error) {

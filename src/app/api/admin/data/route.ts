@@ -12,53 +12,55 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
+        // Parallel Fetch for maximum speed
+        const [fbResult, pgResult] = await Promise.allSettled([
+            (async () => {
+                const q = query(collection(db, "quentin_subscribers"), orderBy("created_at", "desc"));
+                const querySnapshot = await getDocs(q);
+                return querySnapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data(),
+                    _source: 'firebase'
+                }));
+            })(),
+            (async () => {
+                const { rows } = await sql`SELECT * FROM users ORDER BY created_at DESC`;
+                return rows.map(row => ({
+                    ...row,
+                    id: `pg-${row.id}`,
+                    _source: 'postgres'
+                }));
+            })()
+        ]);
+
         const allUsers: any[] = [];
         const seenIds = new Set();
         let fbCount = 0;
         let pgCount = 0;
 
-        // 1. Fetch from Firebase
-        try {
-            const q = query(collection(db, "quentin_subscribers"), orderBy("created_at", "desc"));
-            const querySnapshot = await getDocs(q);
-            querySnapshot.forEach((doc) => {
-                const data = doc.data();
-                const user = {
-                    id: doc.id,
-                    ...data,
-                    _source: 'firebase'
-                };
+        // Process Firebase
+        if (fbResult.status === 'fulfilled') {
+            fbResult.value.forEach(user => {
                 allUsers.push(user);
-                seenIds.add(doc.id);
+                seenIds.add(user.id);
                 fbCount++;
             });
-        } catch (fbError) {
-            console.error("Firebase Admin Fetch Error:", fbError);
         }
 
-        // 2. Fetch from Postgres
-        try {
-            const { rows } = await sql`SELECT * FROM users ORDER BY created_at DESC`;
-            rows.forEach(row => {
-                const pgId = `pg-${row.id}`;
-                if (!seenIds.has(pgId)) {
-                    // Check if we already have this phone/name from Firebase to avoid visual clutter
-                    const isDuplicate = allUsers.some(u => u.phone === row.phone && u.name === row.name);
-
+        // Process Postgres
+        if (pgResult.status === 'fulfilled') {
+            pgResult.value.forEach(row => {
+                if (!seenIds.has(row.id)) {
+                    // Check for visual duplicate
+                    const isDuplicate = allUsers.some(u => u.phone === (row as any).phone && u.name === (row as any).name);
                     allUsers.push({
                         ...row,
-                        id: pgId,
-                        _source: 'postgres',
                         _is_duplicate: isDuplicate
                     });
                     pgCount++;
                 }
             });
-        } catch (dbError: any) {
-            console.error("Postgres Admin Fetch Error:", dbError);
         }
-
-        console.log(`Admin Fetch: ${fbCount} from Firebase, ${pgCount} from Postgres. Total unique: ${allUsers.length}`);
 
         return NextResponse.json({
             users: allUsers,

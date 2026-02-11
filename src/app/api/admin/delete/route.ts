@@ -3,6 +3,14 @@ import { sql } from "@vercel/postgres";
 import { db } from "@/lib/firebase";
 import { doc, deleteDoc } from "firebase/firestore";
 
+// Helper for timeouts
+const withTimeout = (promise: Promise<any>, timeoutMs: number) => {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), timeoutMs))
+    ]);
+};
+
 export async function POST(request: Request) {
     try {
         const body = await request.json();
@@ -23,17 +31,19 @@ export async function POST(request: Request) {
             if (stringId.startsWith('pg-')) {
                 // Postgres Delete
                 const realId = stringId.replace('pg-', '');
-                await sql`DELETE FROM users WHERE id = ${realId}`;
+                await withTimeout(sql`DELETE FROM users WHERE id = ${realId}`, 8000);
             } else {
                 // Firebase Delete
                 const userRef = doc(db, "quentin_subscribers", stringId);
-                await deleteDoc(userRef);
+                await withTimeout(deleteDoc(userRef), 8000);
             }
 
             return NextResponse.json({ success: true }, { status: 200 });
-        } catch (dbError) {
+        } catch (dbError: any) {
             console.error("Database Delete Error:", dbError);
-            return NextResponse.json({ error: "Database delete failed" }, { status: 500 });
+            return NextResponse.json({
+                error: dbError.message === "Timeout" ? "המערכת איטית, אנא נסה שוב" : "פעולת המחיקה נכשלה"
+            }, { status: 500 });
         }
 
     } catch (error) {
