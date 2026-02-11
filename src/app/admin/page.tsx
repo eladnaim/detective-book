@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { Loader2, Download, Lock, Pencil, X, Save, Trash2, RefreshCcw } from "lucide-react";
+import { Loader2, Download, Lock, Pencil, X, Save, Trash2, RefreshCcw, Archive, Users, ShieldCheck } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 interface User {
     id: string | number;
@@ -11,6 +12,10 @@ interface User {
     address: string;
     zip: string;
     created_at: string;
+    deleted_at?: string;
+    _sources?: string[];
+    _source?: string;
+    pg_id?: number | string;
 }
 
 export default function AdminPage() {
@@ -20,6 +25,14 @@ export default function AdminPage() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState("");
     const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+    const [activeTab, setActiveTab] = useState<'subscribers' | 'archive'>('subscribers');
+
+    // Archive / Super Admin State
+    const [isSuperAuthenticated, setIsSuperAuthenticated] = useState(false);
+    const [superUser, setSuperUser] = useState("");
+    const [superPass, setSuperPass] = useState("");
+    const [archivedUsers, setArchivedUsers] = useState<User[]>([]);
+    const [isArchiveLoading, setIsArchiveLoading] = useState(false);
 
     // Edit State
     const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -53,6 +66,29 @@ export default function AdminPage() {
         }
     }, [isAuthenticated]);
 
+    const fetchArchive = async () => {
+        if (!superUser || !superPass) return;
+        setIsArchiveLoading(true);
+        try {
+            const res = await fetch("/api/admin/archive", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username: superUser, password: superPass }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setArchivedUsers(data.archive);
+                setIsSuperAuthenticated(true);
+            } else {
+                alert("נכשל בחיבור לארכיון: פרטים שגויים");
+            }
+        } catch (err) {
+            alert("שגיאת תקשורת");
+        } finally {
+            setIsArchiveLoading(false);
+        }
+    };
+
     // Auto-login & Auto-refresh
     useEffect(() => {
         const savedPass = localStorage.getItem("admin_pass");
@@ -63,11 +99,11 @@ export default function AdminPage() {
 
         const interval = setInterval(() => {
             const currentPass = localStorage.getItem("admin_pass");
-            if (currentPass) fetchUsers(currentPass);
-        }, 30000); // Refresh every 30 seconds
+            if (currentPass && activeTab === 'subscribers') fetchUsers(currentPass);
+        }, 30000);
 
         return () => clearInterval(interval);
-    }, [fetchUsers]);
+    }, [fetchUsers, activeTab]);
 
     async function handleLogin(e: React.FormEvent) {
         e.preventDefault();
@@ -80,9 +116,7 @@ export default function AdminPage() {
     async function handleSaveUser(e: React.FormEvent) {
         e.preventDefault();
         if (!editingUser) return;
-
         setIsSaving(true);
-
         try {
             const res = await fetch("/api/admin/edit", {
                 method: "POST",
@@ -92,10 +126,7 @@ export default function AdminPage() {
                     ...editingUser
                 }),
             });
-
             if (!res.ok) throw new Error("Update failed");
-
-            // Update local state
             setUsers(users.map(u => u.id === editingUser.id ? editingUser : u));
             setEditingUser(null);
         } catch (err) {
@@ -106,10 +137,8 @@ export default function AdminPage() {
     }
 
     async function handleDeleteUser() {
-        if (!editingUser || !window.confirm("האם אתה בטוח שברצונך למחוק משתמש זה? פעולה זו אינה הפיכה.")) return;
-
+        if (!editingUser || !window.confirm("האם אתה בטוח שברצונך למחוק משתמש זה? הוא יועבר לארכיון.")) return;
         setIsDeleting(true);
-
         try {
             const res = await fetch("/api/admin/delete", {
                 method: "POST",
@@ -120,10 +149,7 @@ export default function AdminPage() {
                     pg_id: (editingUser as any).pg_id
                 }),
             });
-
             if (!res.ok) throw new Error("Delete failed");
-
-            // Remove locally
             setUsers(users.filter(u => u.id !== editingUser.id));
             setEditingUser(null);
         } catch (err) {
@@ -133,30 +159,23 @@ export default function AdminPage() {
         }
     }
 
-    function downloadCSV() {
-        if (!users.length) return;
-
-        const headers = ["שם מלא", "טלפון", "אימייל", "עיר", "כתובת", "מיקוד", "תאריך הרשמה"];
+    function downloadCSV(data: User[], label: string) {
+        if (!data.length) return;
+        const headers = ["שם מלא", "טלפון", "אימייל", "עיר", "כתובת", "מיקוד", label === 'archive' ? "תאריך מחיקה" : "תאריך הרשמה"];
         const csvContent = [
             headers.join(","),
-            ...users.map((u) =>
-                [
-                    `"${u.name}"`,
-                    `"${u.phone}"`,
-                    `"${u.email}"`,
-                    `"${u.city}"`,
-                    `"${u.address}"`,
-                    `"${u.zip}"`,
-                    `"${new Date(u.created_at).toLocaleString('he-IL')}"`,
-                ].join(",")
-            ),
+            ...data.map((u) => [
+                `"${u.name}"`, `"${u.phone}"`, `"${u.email}"`,
+                `"${u.city}"`, `"${u.address}"`, `"${u.zip}"`,
+                `"${new Date(label === 'archive' ? (u.deleted_at || '') : u.created_at).toLocaleString('he-IL')}"`,
+            ].join(",")),
         ].join("\n");
 
         const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.setAttribute("href", url);
-        link.setAttribute("download", `subscribers_${new Date().toISOString().split('T')[0]}.csv`);
+        link.setAttribute("download", `${label}_${new Date().toISOString().split('T')[0]}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -170,21 +189,15 @@ export default function AdminPage() {
                         <Lock className="w-12 h-12 text-white mx-auto" />
                         <h1 className="text-2xl font-bold text-white">כנסת מנהלים</h1>
                     </div>
-                    <div>
-                        <input
-                            type="password"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            placeholder="סיסמת ניהול"
-                            className="w-full bg-black border border-neutral-700 rounded-md px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-white/20"
-                        />
-                    </div>
+                    <input
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="סיסמת ניהול"
+                        className="w-full bg-black border border-neutral-700 rounded-md px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-white/20"
+                    />
                     {error && <p className="text-red-500 text-sm text-center">{error}</p>}
-                    <button
-                        type="submit"
-                        disabled={isLoading}
-                        className="w-full bg-white text-black font-bold py-2 rounded-md hover:bg-neutral-200 transition-colors disabled:opacity-50"
-                    >
+                    <button type="submit" disabled={isLoading} className="w-full bg-white text-black font-bold py-2 rounded-md hover:bg-neutral-200 transition-colors disabled:opacity-50">
                         {isLoading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "כניסה"}
                     </button>
                 </form>
@@ -193,194 +206,201 @@ export default function AdminPage() {
     }
 
     return (
-        <div className="min-h-screen bg-black text-white p-8" suppressHydrationWarning>
-            <div className="max-w-7xl mx-auto space-y-8">
-                <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                    <div className="flex items-center gap-4">
-                        <div>
-                            <h1 className="text-3xl font-bold">רשימת נרשמים</h1>
-                            <div className="flex gap-4 text-sm mt-1">
-                                <p className="text-neutral-400">סה"כ: {users.length}</p>
-                                <p className="text-orange-500/80">Firebase: {users.filter(u => (u as any)._source === 'firebase').length}</p>
-                                <p className="text-blue-500/80">Postgres: {users.filter(u => (u as any)._source === 'postgres').length}</p>
+        <div className="min-h-screen bg-black text-white p-4 md:p-8" suppressHydrationWarning>
+            <div className="max-w-7xl mx-auto space-y-6">
+                {/* Header & Tabs */}
+                <div className="flex flex-col md:flex-row justify-between items-center bg-neutral-900/50 p-6 rounded-2xl border border-neutral-800 gap-6">
+                    <div className="flex items-center gap-6">
+                        <h1 className="text-2xl font-bold flex items-center gap-2">
+                            דשבורד ניהול
+                        </h1>
+                        <div className="flex bg-black p-1 rounded-lg border border-neutral-800">
+                            <button
+                                onClick={() => setActiveTab('subscribers')}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-md transition-all ${activeTab === 'subscribers' ? 'bg-white text-black font-bold' : 'text-neutral-400 hover:text-white'}`}
+                            >
+                                <Users className="w-4 h-4" />
+                                נרשמים ({users.length})
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('archive')}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-md transition-all ${activeTab === 'archive' ? 'bg-white text-black font-bold' : 'text-neutral-400 hover:text-white'}`}
+                            >
+                                <Archive className="w-4 h-4" />
+                                ארכיון
+                            </button>
+                        </div>
+                    </div>
+
+                    {activeTab === 'subscribers' && (
+                        <div className="flex items-center gap-4">
+                            <div className="text-right hidden sm:block">
+                                <p className="text-xs text-neutral-500">עדכון אחרון: {lastRefresh.toLocaleTimeString()}</p>
                             </div>
-                        </div>
-                        <div className="flex items-center gap-2 bg-neutral-900 px-3 py-1 rounded-full border border-neutral-800">
-                            <RefreshCcw className={`w-3 h-3 text-neutral-500 ${isLoading ? 'animate-spin' : ''}`} />
-                            <span className="text-xs text-neutral-500">
-                                עדכון אחרון: {lastRefresh.toLocaleTimeString('he-IL')}
-                            </span>
-                        </div>
-                    </div>
-
-                    <div className="flex gap-4">
-                        <button
-                            onClick={() => fetchUsers(password)}
-                            disabled={isLoading}
-                            className="flex items-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-white px-4 py-2 rounded-md transition-colors"
-                        >
-                            <RefreshCcw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                            רענן
-                        </button>
-                        <button
-                            onClick={downloadCSV}
-                            className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md transition-colors"
-                        >
-                            <Download className="w-4 h-4" />
-                            הורד CSV
-                        </button>
-                    </div>
-                </div>
-
-                <div className="border border-neutral-800 rounded-lg overflow-hidden bg-neutral-900/50">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-right text-sm">
-                            <thead className="bg-neutral-900 border-b border-neutral-800">
-                                <tr>
-                                    <th className="p-4 font-medium text-neutral-300">שם מלא</th>
-                                    <th className="p-4 font-medium text-neutral-300">טלפון</th>
-                                    <th className="p-4 font-medium text-neutral-300">עיר</th>
-                                    <th className="p-4 font-medium text-neutral-300">כתובת</th>
-                                    <th className="p-4 font-medium text-neutral-300">מיקוד</th>
-                                    <th className="p-4 font-medium text-neutral-300">מקור</th>
-                                    <th className="p-4 font-medium text-neutral-300">תאריך</th>
-                                    <th className="p-4 font-medium text-neutral-300">פעולות</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-neutral-800">
-                                {users.map((user) => (
-                                    <tr key={user.id} className="hover:bg-neutral-900/50 transition-colors">
-                                        <td className="p-4 font-medium">{user.name}</td>
-                                        <td className="p-4 text-neutral-400">{user.phone}</td>
-                                        <td className="p-4 text-neutral-400">{user.city}</td>
-                                        <td className="p-4 text-neutral-400">
-                                            {user.address}
-                                        </td>
-                                        <td className="p-4 text-neutral-400">{user.zip || '-'}</td>
-                                        <td className="p-4">
-                                            <div className="flex gap-1 flex-wrap">
-                                                {(user as any)._sources?.map((src: string) => (
-                                                    <span key={src} className={`text-[10px] px-2 py-0.5 rounded-full uppercase ${src === 'firebase' ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20' : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'}`}>
-                                                        {src}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        </td>
-                                        <td className="p-4 text-neutral-400 font-mono text-xs">
-                                            {new Date(user.created_at).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' })}
-                                        </td>
-                                        <td className="p-4">
-                                            <button
-                                                onClick={() => setEditingUser(user)}
-                                                className="text-neutral-400 hover:text-white transition-colors"
-                                                title="ערוך"
-                                            >
-                                                <Pencil className="w-4 h-4" />
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                    {users.length === 0 && (
-                        <div className="p-12 text-center text-neutral-500">
-                            אין עדיין נרשמים.
+                            <button onClick={() => fetchUsers(password)} className="p-2 hover:bg-neutral-800 rounded-lg text-neutral-400">
+                                <RefreshCcw className="w-5 h-5" />
+                            </button>
+                            <button onClick={() => downloadCSV(users, 'subscribers')} className="flex items-center gap-2 bg-neutral-800 hover:bg-neutral-700 px-4 py-2 rounded-lg text-sm transition-colors">
+                                <Download className="w-4 h-4" /> הורדה למחשב
+                            </button>
                         </div>
                     )}
                 </div>
+
+                {activeTab === 'subscribers' ? (
+                    <div className="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-right">
+                                <thead className="bg-neutral-950 border-b border-neutral-800">
+                                    <tr>
+                                        <th className="p-4 font-medium text-neutral-300">שם מלא</th>
+                                        <th className="p-4 font-medium text-neutral-300">טלפון</th>
+                                        <th className="p-4 font-medium text-neutral-300">עיר</th>
+                                        <th className="p-4 font-medium text-neutral-300">כתובת</th>
+                                        <th className="p-4 font-medium text-neutral-300">מיקוד</th>
+                                        <th className="p-4 font-medium text-neutral-300">מקור</th>
+                                        <th className="p-4 font-medium text-neutral-300">תאריך</th>
+                                        <th className="p-4 font-medium text-neutral-300">פעולות</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-neutral-800">
+                                    {users.map((user) => (
+                                        <tr key={user.id} className="hover:bg-neutral-900/50 transition-colors group">
+                                            <td className="p-4 font-medium">{user.name}</td>
+                                            <td className="p-4 text-neutral-400">{user.phone}</td>
+                                            <td className="p-4 text-neutral-400">{user.city}</td>
+                                            <td className="p-4 text-neutral-400">{user.address}</td>
+                                            <td className="p-4 text-neutral-400">{user.zip || '-'}</td>
+                                            <td className="p-4">
+                                                <div className="flex gap-1 flex-wrap">
+                                                    {user._sources?.map(src => (
+                                                        <span key={src} className={`text-[10px] px-2 py-0.5 rounded-full uppercase ${src === 'firebase' ? 'bg-orange-500/10 text-orange-500 border-orange-500/20' : 'bg-blue-500/10 text-blue-500 border-blue-500/20'} border`}>
+                                                            {src}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </td>
+                                            <td className="p-4 text-neutral-400 text-xs font-mono">{new Date(user.created_at).toLocaleDateString('he-IL')}</td>
+                                            <td className="p-4">
+                                                <button onClick={() => setEditingUser(user)} className="p-2 hover:bg-neutral-800 rounded-lg text-neutral-400"><Pencil className="w-4 h-4" /></button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="space-y-6">
+                        {!isSuperAuthenticated ? (
+                            <div className="max-w-md mx-auto bg-neutral-900 border border-neutral-800 p-8 rounded-2xl space-y-6">
+                                <div className="text-center space-y-2">
+                                    <ShieldCheck className="w-12 h-12 text-blue-500 mx-auto" />
+                                    <h2 className="text-xl font-bold">גישה לארכיון (Soft Delete)</h2>
+                                    <p className="text-sm text-neutral-400">אזור המורשה למנהל מערכת ראשי בלבד</p>
+                                </div>
+                                <div className="space-y-4">
+                                    <input
+                                        value={superUser}
+                                        onChange={e => setSuperUser(e.target.value)}
+                                        placeholder="שם משתמש"
+                                        className="w-full bg-black border border-neutral-700 rounded-md px-4 py-2"
+                                    />
+                                    <input
+                                        type="password"
+                                        value={superPass}
+                                        onChange={e => setSuperPass(e.target.value)}
+                                        placeholder="סיסמה"
+                                        className="w-full bg-black border border-neutral-700 rounded-md px-4 py-2"
+                                    />
+                                    <button
+                                        onClick={fetchArchive}
+                                        disabled={isArchiveLoading}
+                                        className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-md flex items-center justify-center gap-2"
+                                    >
+                                        {isArchiveLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "אימות וכניסה"}
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden">
+                                <div className="p-4 border-b border-neutral-800 flex justify-between items-center bg-blue-900/10">
+                                    <span className="text-sm font-bold text-blue-400 flex items-center gap-2">
+                                        <Archive className="w-4 h-4" /> ארכיון רשומות שמחקו ({archivedUsers.length})
+                                    </span>
+                                    <button onClick={() => downloadCSV(archivedUsers, 'archive')} className="text-xs bg-neutral-800 px-3 py-1 rounded border border-neutral-700">ייצוא ארכיון למחשב</button>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-right">
+                                        <thead className="bg-neutral-950 text-neutral-300 text-sm">
+                                            <tr>
+                                                <th className="p-4">שם מלא</th>
+                                                <th className="p-4">טלפון</th>
+                                                <th className="p-4">עיר</th>
+                                                <th className="p-4">כתובת</th>
+                                                <th className="p-4">תאריך מחיקה</th>
+                                                <th className="p-4">מקור</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-neutral-800">
+                                            {archivedUsers.map((user) => (
+                                                <tr key={user.id} className="text-neutral-400 group hover:bg-red-900/5">
+                                                    <td className="p-4 text-white font-medium">{user.name}</td>
+                                                    <td className="p-4">{user.phone}</td>
+                                                    <td className="p-4">{user.city}</td>
+                                                    <td className="p-4">{user.address}</td>
+                                                    <td className="p-4 text-xs font-mono text-red-400/80">
+                                                        {new Date(user.deleted_at || '').toLocaleString('he-IL')}
+                                                    </td>
+                                                    <td className="p-4">
+                                                        <span className="text-[10px] px-2 py-0.5 rounded-full border border-neutral-700 uppercase">
+                                                            {user._source}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Edit Modal */}
-            {editingUser && (
-                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                    <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 w-full max-w-lg space-y-6">
-                        <div className="flex justify-between items-center">
-                            <h2 className="text-xl font-bold">עריכת פרטים</h2>
-                            <button onClick={() => setEditingUser(null)} className="text-neutral-400 hover:text-white">
-                                <X className="w-5 h-5" />
-                            </button>
-                        </div>
-
-                        <form onSubmit={handleSaveUser} className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm text-neutral-400 mb-1">שם מלא</label>
-                                    <input
-                                        value={editingUser.name}
-                                        onChange={e => setEditingUser({ ...editingUser, name: e.target.value })}
-                                        className="w-full bg-black border border-neutral-700 rounded px-3 py-2"
-                                    />
+            <AnimatePresence>
+                {editingUser && (
+                    <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 z-50">
+                        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 w-full max-w-lg shadow-2xl">
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-xl font-bold">עריכת פרטים</h2>
+                                <button onClick={() => setEditingUser(null)} className="text-neutral-400 hover:text-white"><X className="w-5 h-5" /></button>
+                            </div>
+                            <form onSubmit={handleSaveUser} className="space-y-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div><label className="text-xs text-neutral-500">שם מלא</label><input value={editingUser.name} onChange={e => setEditingUser({ ...editingUser, name: e.target.value })} className="w-full bg-black border border-neutral-800 rounded px-3 py-2" /></div>
+                                    <div><label className="text-xs text-neutral-500">טלפון</label><input value={editingUser.phone} onChange={e => setEditingUser({ ...editingUser, phone: e.target.value })} className="w-full bg-black border border-neutral-800 rounded px-3 py-2" /></div>
                                 </div>
-                                <div>
-                                    <label className="block text-sm text-neutral-400 mb-1">טלפון</label>
-                                    <input
-                                        value={editingUser.phone}
-                                        onChange={e => setEditingUser({ ...editingUser, phone: e.target.value })}
-                                        className="w-full bg-black border border-neutral-700 rounded px-3 py-2"
-                                    />
+                                <div><label className="text-xs text-neutral-500">אימייל</label><input value={editingUser.email || ''} onChange={e => setEditingUser({ ...editingUser, email: e.target.value })} className="w-full bg-black border border-neutral-800 rounded px-3 py-2" /></div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div><label className="text-xs text-neutral-500">עיר</label><input value={editingUser.city} onChange={e => setEditingUser({ ...editingUser, city: e.target.value })} className="w-full bg-black border border-neutral-800 rounded px-3 py-2" /></div>
+                                    <div><label className="text-xs text-neutral-500">מיקוד</label><input value={editingUser.zip || ''} onChange={e => setEditingUser({ ...editingUser, zip: e.target.value })} className="w-full bg-black border border-neutral-800 rounded px-3 py-2" /></div>
                                 </div>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm text-neutral-400 mb-1">אימייל</label>
-                                <input
-                                    value={editingUser.email || ''}
-                                    onChange={e => setEditingUser({ ...editingUser, email: e.target.value })}
-                                    className="w-full bg-black border border-neutral-700 rounded px-3 py-2"
-                                />
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm text-neutral-400 mb-1">עיר</label>
-                                    <input
-                                        value={editingUser.city}
-                                        onChange={e => setEditingUser({ ...editingUser, city: e.target.value })}
-                                        className="w-full bg-black border border-neutral-700 rounded px-3 py-2"
-                                    />
+                                <div><label className="text-xs text-neutral-500">כתובת</label><input value={editingUser.address} onChange={e => setEditingUser({ ...editingUser, address: e.target.value })} className="w-full bg-black border border-neutral-800 rounded px-3 py-2" /></div>
+                                <div className="flex gap-3 pt-6">
+                                    <button type="button" onClick={handleDeleteUser} disabled={isDeleting} className="flex-1 bg-red-600/10 text-red-500 font-bold py-2.5 rounded-lg border border-red-600/20 hover:bg-red-600/20 flex items-center justify-center gap-2">
+                                        {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Trash2 className="w-4 h-4" /> מחק והעבר לארכיון</>}
+                                    </button>
+                                    <button type="submit" disabled={isSaving} className="flex-[2] bg-white text-black font-extrabold py-2.5 rounded-lg hover:bg-neutral-200 flex items-center justify-center gap-2">
+                                        {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Save className="w-4 h-4" /> שמור שינויים</>}
+                                    </button>
                                 </div>
-                                <div>
-                                    <label className="block text-sm text-neutral-400 mb-1">מיקוד</label>
-                                    <input
-                                        value={editingUser.zip || ''}
-                                        onChange={e => setEditingUser({ ...editingUser, zip: e.target.value })}
-                                        className="w-full bg-black border border-neutral-700 rounded px-3 py-2"
-                                    />
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm text-neutral-400 mb-1">כתובת</label>
-                                <input
-                                    value={editingUser.address}
-                                    onChange={e => setEditingUser({ ...editingUser, address: e.target.value })}
-                                    className="w-full bg-black border border-neutral-700 rounded px-3 py-2"
-                                />
-                            </div>
-
-                            <div className="flex gap-4 pt-2 border-t border-neutral-800 mt-4">
-                                <button
-                                    type="button"
-                                    onClick={handleDeleteUser}
-                                    disabled={isDeleting}
-                                    className="flex-1 bg-red-600/20 text-red-500 font-bold py-2 rounded hover:bg-red-600/30 flex items-center justify-center gap-2 transition-colors"
-                                >
-                                    {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Trash2 className="w-4 h-4" /> מחק משתמש</>}
-                                </button>
-
-                                <button
-                                    type="submit"
-                                    disabled={isSaving}
-                                    className="flex-[2] bg-white text-black font-bold py-2 rounded hover:bg-neutral-200 flex items-center justify-center gap-2"
-                                >
-                                    {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Save className="w-4 h-4" /> שמור שינויים</>}
-                                </button>
-                            </div>
-                        </form>
+                            </form>
+                        </motion.div>
                     </div>
-                </div>
-            )}
+                )}
+            </AnimatePresence>
         </div>
     );
 }
