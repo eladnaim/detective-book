@@ -13,7 +13,9 @@ export async function POST(request: Request) {
         }
 
         const allUsers: any[] = [];
-        const userIds = new Set();
+        const seenIds = new Set();
+        let fbCount = 0;
+        let pgCount = 0;
 
         // 1. Fetch from Firebase
         try {
@@ -21,10 +23,14 @@ export async function POST(request: Request) {
             const querySnapshot = await getDocs(q);
             querySnapshot.forEach((doc) => {
                 const data = doc.data();
-                const user = { id: doc.id, ...data };
+                const user = {
+                    id: doc.id,
+                    ...data,
+                    _source: 'firebase'
+                };
                 allUsers.push(user);
-                // Track phone+name to avoid visible duplicates if both DBs work
-                userIds.add(`${data.phone}-${data.name}`);
+                seenIds.add(doc.id);
+                fbCount++;
             });
         } catch (fbError) {
             console.error("Firebase Admin Fetch Error:", fbError);
@@ -34,18 +40,30 @@ export async function POST(request: Request) {
         try {
             const { rows } = await sql`SELECT * FROM users ORDER BY created_at DESC`;
             rows.forEach(row => {
-                if (!userIds.has(`${row.phone}-${row.name}`)) {
+                const pgId = `pg-${row.id}`;
+                if (!seenIds.has(pgId)) {
+                    // Check if we already have this phone/name from Firebase to avoid visual clutter
+                    const isDuplicate = allUsers.some(u => u.phone === row.phone && u.name === row.name);
+
                     allUsers.push({
                         ...row,
-                        id: `pg-${row.id}`
+                        id: pgId,
+                        _source: 'postgres',
+                        _is_duplicate: isDuplicate
                     });
+                    pgCount++;
                 }
             });
         } catch (dbError: any) {
             console.error("Postgres Admin Fetch Error:", dbError);
         }
 
-        return NextResponse.json({ users: allUsers }, { status: 200 });
+        console.log(`Admin Fetch: ${fbCount} from Firebase, ${pgCount} from Postgres. Total unique: ${allUsers.length}`);
+
+        return NextResponse.json({
+            users: allUsers,
+            counts: { firebase: fbCount, postgres: pgCount }
+        }, { status: 200 });
 
     } catch (error) {
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });

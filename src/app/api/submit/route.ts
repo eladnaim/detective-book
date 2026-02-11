@@ -4,10 +4,18 @@ import { headers } from "next/headers";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, query, where, getDocs } from "firebase/firestore";
 
+// Helper for timeouts to avoid hanging requests
+const withTimeout = (promise: Promise<any>, timeoutMs: number) => {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), timeoutMs))
+    ]);
+};
+
 export async function POST(request: Request) {
     const startTime = Date.now();
     try {
-        const body = await request.json();
+        const body = await request.json().catch(() => ({}));
         const { fullName, phone, email, city, zip, address } = body;
 
         const headersList = await headers();
@@ -19,36 +27,35 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "חסרים שדות חובה" }, { status: 400 });
         }
 
-        // 2. Parallel Duplicate Check (Maximum Speed)
-        const [fbDuplicate, pgDuplicate] = await Promise.all([
-            (async () => {
-                try {
+        // 2. Parallel Duplicate Check (with 5s Timeout)
+        let isDuplicate = false;
+        try {
+            const results = await Promise.allSettled([
+                // Firebase Check
+                (async () => {
                     const q = query(collection(db, "quentin_subscribers"), where("phone", "==", phone));
                     const snap = await getDocs(q);
                     return !snap.empty;
-                } catch (e) {
-                    console.error("FB Check Error:", e);
-                    return false;
-                }
-            })(),
-            (async () => {
-                try {
+                })(),
+                // Postgres Check
+                (async () => {
                     const res = await sql`SELECT id FROM users WHERE phone = ${phone} LIMIT 1`;
                     return res.rows.length > 0;
-                } catch (e) {
-                    if ((e as any).message?.includes('relation "users" does not exist')) return false;
-                    console.error("PG Check Error:", e);
-                    return false;
-                }
-            })()
-        ]);
+                })()
+            ]);
 
-        if (fbDuplicate || pgDuplicate) {
+            isDuplicate = results.some(r => r.status === "fulfilled" && (r as PromiseFulfilledResult<boolean>).value === true);
+        } catch (checkError) {
+            console.error("Duplicate check error (ignoring and proceeding):", checkError);
+        }
+
+        if (isDuplicate) {
             return NextResponse.json({ error: "מספר טלפון זה כבר רשום במערכת" }, { status: 409 });
         }
 
         // 3. Parallel Save (Highest Reliability)
-        const results = await Promise.allSettled([
+        // We use allSettled to ensure we don't wait forever if one provider is down
+        const savePromises = [
             // Firebase Save
             (async () => {
                 const usersRef = collection(db, "quentin_subscribers");
@@ -89,7 +96,10 @@ export async function POST(request: Request) {
                 }
                 return "postgres";
             })()
-        ]);
+        ];
+
+        // Wait for at least one to succeed or both to fail/timeout (within 8 seconds)
+        const results = await Promise.allSettled(savePromises.map(p => withTimeout(p, 8000)));
 
         const successfulSaves = results
             .filter(r => r.status === "fulfilled")
@@ -106,12 +116,16 @@ export async function POST(request: Request) {
             }, { status: 200 });
         }
 
-        // If both failed
-        console.error("Critical: All storage providers failed", results);
-        return NextResponse.json({ error: "אירעה שגיאה בשמירת הנתונים. המהנדסים עודכנו." }, { status: 500 });
+        // Check if it was a timeout or a real failure
+        const errors = results.filter(r => r.status === "rejected");
+        console.error("All storage providers failed/timed out:", errors);
+
+        return NextResponse.json({
+            error: "אירעה שגיאה בשמירת הנתונים. המערכת תחת עומס, אנא נסה שוב בעוד דקה."
+        }, { status: 500 });
 
     } catch (error) {
         console.error("Fatal API Error:", error);
-        return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+        return NextResponse.json({ error: "שגיאת מערכת פנימית" }, { status: 500 });
     }
 }

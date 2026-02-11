@@ -192,7 +192,11 @@ export default function AdminPage() {
                     <div className="flex items-center gap-4">
                         <div>
                             <h1 className="text-3xl font-bold">רשימת נרשמים</h1>
-                            <p className="text-neutral-400">סה"כ נרשמים: {users.length}</p>
+                            <div className="flex gap-4 text-sm mt-1">
+                                <p className="text-neutral-400">סה"כ: {users.length}</p>
+                                <p className="text-orange-500/80">Firebase: {users.filter(u => (u as any)._source === 'firebase').length}</p>
+                                <p className="text-blue-500/80">Postgres: {users.filter(u => (u as any)._source === 'postgres').length}</p>
+                            </div>
                         </div>
                         <div className="flex items-center gap-2 bg-neutral-900 px-3 py-1 rounded-full border border-neutral-800">
                             <RefreshCcw className={`w-3 h-3 text-neutral-500 ${isLoading ? 'animate-spin' : ''}`} />
@@ -228,25 +232,28 @@ export default function AdminPage() {
                                 <tr>
                                     <th className="p-4 font-medium text-neutral-300">שם מלא</th>
                                     <th className="p-4 font-medium text-neutral-300">טלפון</th>
-                                    <th className="p-4 font-medium text-neutral-300">אימייל</th>
                                     <th className="p-4 font-medium text-neutral-300">עיר</th>
-                                    <th className="p-4 font-medium text-neutral-300">כתובת</th>
-                                    <th className="p-4 font-medium text-neutral-300">מיקוד</th>
+                                    <th className="p-4 font-medium text-neutral-300">מקור</th>
                                     <th className="p-4 font-medium text-neutral-300">תאריך</th>
                                     <th className="p-4 font-medium text-neutral-300">פעולות</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-neutral-800">
                                 {users.map((user) => (
-                                    <tr key={user.id} className="hover:bg-neutral-900/50 transition-colors">
-                                        <td className="p-4 font-medium">{user.name}</td>
+                                    <tr key={user.id} className={`hover:bg-neutral-900/50 transition-colors ${(user as any)._is_duplicate ? 'opacity-50' : ''}`}>
+                                        <td className="p-4 font-medium">
+                                            {user.name}
+                                            {(user as any)._is_duplicate && <span className="mr-2 text-[10px] bg-neutral-800 px-1 rounded">כפול</span>}
+                                        </td>
                                         <td className="p-4 text-neutral-400">{user.phone}</td>
-                                        <td className="p-4 text-neutral-400">{user.email}</td>
                                         <td className="p-4 text-neutral-400">{user.city}</td>
-                                        <td className="p-4 text-neutral-400">{user.address}</td>
-                                        <td className="p-4 text-neutral-400">{user.zip}</td>
+                                        <td className="p-4">
+                                            <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase ${(user as any)._source === 'firebase' ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20' : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'}`}>
+                                                {(user as any)._source}
+                                            </span>
+                                        </td>
                                         <td className="p-4 text-neutral-400 font-mono text-xs">
-                                            {new Date(user.created_at).toLocaleDateString('he-IL')}
+                                            {new Date(user.created_at).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' })}
                                         </td>
                                         <td className="p-4">
                                             <button
