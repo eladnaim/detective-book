@@ -14,51 +14,55 @@ const withTimeout = (promise: Promise<any>, timeoutMs: number) => {
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-        const { password, id, name, phone, email, city, address, zip } = body;
+        const { password, id, pg_id, name, phone, email, city, address, zip } = body;
         const adminPassword = process.env.ADMIN_PASSWORD;
 
         if (!adminPassword || password !== adminPassword) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        if (!id) {
+        if (!id && !pg_id) {
             return NextResponse.json({ error: "Missing ID" }, { status: 400 });
         }
 
-        try {
+        const updatePromises = [];
+
+        // 1. Handle primary ID (Firebase or pg- prefixed)
+        if (id) {
             const stringId = String(id);
-
             if (stringId.startsWith('pg-')) {
-                // Postgres Update
                 const realId = stringId.replace('pg-', '');
-                await withTimeout(sql`
+                updatePromises.push(withTimeout(sql`
                     UPDATE users 
-                    SET name = ${name}, 
-                        phone = ${phone}, 
-                        email = ${email}, 
-                        city = ${city}, 
-                        address = ${address}, 
-                        zip = ${zip}
+                    SET name = ${name}, phone = ${phone}, email = ${email}, 
+                        city = ${city}, address = ${address}, zip = ${zip}
                     WHERE id = ${realId}
-                `, 8000);
+                `, 8000));
             } else {
-                // Firebase Update
                 const userRef = doc(db, "quentin_subscribers", stringId);
-                await withTimeout(updateDoc(userRef, {
-                    name,
-                    phone,
-                    email: email || "",
-                    city,
-                    address,
-                    zip: zip || ""
-                }), 8000);
+                updatePromises.push(withTimeout(updateDoc(userRef, {
+                    name, phone, email: email || "", city, address, zip: zip || ""
+                }), 8000));
             }
+        }
 
+        // 2. Handle secondary Postgres ID for merged records
+        if (pg_id) {
+            updatePromises.push(withTimeout(sql`
+                UPDATE users 
+                SET name = ${name}, phone = ${phone}, email = ${email}, 
+                    city = ${city}, address = ${address}, zip = ${zip}
+                WHERE id = ${pg_id}
+            `, 8000));
+        }
+
+        try {
+            await Promise.allSettled(updatePromises);
             return NextResponse.json({ success: true }, { status: 200 });
         } catch (dbError: any) {
             console.error("Database Update Error:", dbError);
             return NextResponse.json({
-                error: dbError.message === "Timeout" ? "המערכת איטית, אנא נסה שוב" : "פעולת העדכון נכשלה"
+                error: "העדכון נכשל בחלקו או במלואו"
             }, { status: 500 });
         }
 

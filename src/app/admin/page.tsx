@@ -87,7 +87,12 @@ export default function AdminPage() {
             const res = await fetch("/api/admin/edit", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ password, ...editingUser }),
+                body: JSON.stringify({
+                    password,
+                    id: editingUser.id,
+                    pg_id: (editingUser as any).pg_id,
+                    ...editingUser
+                }),
             });
 
             if (!res.ok) throw new Error("Update failed");
@@ -111,7 +116,11 @@ export default function AdminPage() {
             const res = await fetch("/api/admin/delete", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ password, id: editingUser.id }),
+                body: JSON.stringify({
+                    password,
+                    id: editingUser.id,
+                    pg_id: (editingUser as any).pg_id
+                }),
             });
 
             if (!res.ok) throw new Error("Delete failed");
