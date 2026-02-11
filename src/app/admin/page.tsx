@@ -240,17 +240,18 @@ export default function AdminPage() {
                             </thead>
                             <tbody className="divide-y divide-neutral-800">
                                 {users.map((user) => (
-                                    <tr key={user.id} className={`hover:bg-neutral-900/50 transition-colors ${(user as any)._is_duplicate ? 'opacity-50' : ''}`}>
-                                        <td className="p-4 font-medium">
-                                            {user.name}
-                                            {(user as any)._is_duplicate && <span className="mr-2 text-[10px] bg-neutral-800 px-1 rounded">כפול</span>}
-                                        </td>
+                                    <tr key={user.id} className="hover:bg-neutral-900/50 transition-colors">
+                                        <td className="p-4 font-medium">{user.name}</td>
                                         <td className="p-4 text-neutral-400">{user.phone}</td>
                                         <td className="p-4 text-neutral-400">{user.city}</td>
                                         <td className="p-4">
-                                            <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase ${(user as any)._source === 'firebase' ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20' : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'}`}>
-                                                {(user as any)._source}
-                                            </span>
+                                            <div className="flex gap-1 flex-wrap">
+                                                {(user as any)._sources?.map((src: string) => (
+                                                    <span key={src} className={`text-[10px] px-2 py-0.5 rounded-full uppercase ${src === 'firebase' ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20' : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'}`}>
+                                                        {src}
+                                                    </span>
+                                                ))}
+                                            </div>
                                         </td>
                                         <td className="p-4 text-neutral-400 font-mono text-xs">
                                             {new Date(user.created_at).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' })}

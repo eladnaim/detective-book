@@ -33,41 +33,60 @@ export async function POST(request: Request) {
             })()
         ]);
 
-        const allUsers: any[] = [];
-        const seenIds = new Set();
-        let fbCount = 0;
-        let pgCount = 0;
+        const mergedUsers = new Map();
+        let fbTotal = 0;
+        let pgTotal = 0;
 
-        // Process Firebase
+        // Process Firebase (Prioritize Firebase IDs as base)
         if (fbResult.status === 'fulfilled') {
-            fbResult.value.forEach(user => {
-                allUsers.push(user);
-                seenIds.add(user.id);
-                fbCount++;
+            fbResult.value.forEach((user: any) => {
+                const key = `${user.phone}-${user.name}`;
+                mergedUsers.set(key, {
+                    ...user,
+                    _sources: ['firebase']
+                });
+                fbTotal++;
             });
         }
 
-        // Process Postgres
+        // Process Postgres and Merge
         if (pgResult.status === 'fulfilled') {
-            pgResult.value.forEach(row => {
-                if (!seenIds.has(row.id)) {
-                    // Check for visual duplicate
-                    const isDuplicate = allUsers.some(u => u.phone === (row as any).phone && u.name === (row as any).name);
-                    allUsers.push({
-                        ...row,
-                        _is_duplicate: isDuplicate
+            pgResult.value.forEach((row: any) => {
+                const key = `${row.phone}-${row.name}`;
+                if (mergedUsers.has(key)) {
+                    // Update existing record with Postgres ID and source
+                    const existing = mergedUsers.get(key);
+                    mergedUsers.set(key, {
+                        ...existing,
+                        pg_id: row.id, // Store Postgres ID for cross-reference
+                        _sources: [...existing._sources, 'postgres']
                     });
-                    pgCount++;
+                } else {
+                    // Add new unique record from Postgres
+                    mergedUsers.set(key, {
+                        ...row,
+                        _sources: ['postgres']
+                    });
                 }
+                pgTotal++;
             });
         }
+
+        const finalUsers = Array.from(mergedUsers.values()).sort((a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
 
         return NextResponse.json({
-            users: allUsers,
-            counts: { firebase: fbCount, postgres: pgCount }
+            users: finalUsers,
+            counts: {
+                firebase: fbTotal,
+                postgres: pgTotal,
+                total_unique: finalUsers.length
+            }
         }, { status: 200 });
 
     } catch (error) {
+        console.error("Admin Fetch Error:", error);
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
     }
 }
