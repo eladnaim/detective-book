@@ -242,6 +242,8 @@ export default function AdminPage() {
                                     <th className="p-4 font-medium text-neutral-300">שם מלא</th>
                                     <th className="p-4 font-medium text-neutral-300">טלפון</th>
                                     <th className="p-4 font-medium text-neutral-300">עיר</th>
+                                    <th className="p-4 font-medium text-neutral-300">כתובת</th>
+                                    <th className="p-4 font-medium text-neutral-300">מיקוד</th>
                                     <th className="p-4 font-medium text-neutral-300">מקור</th>
                                     <th className="p-4 font-medium text-neutral-300">תאריך</th>
                                     <th className="p-4 font-medium text-neutral-300">פעולות</th>
@@ -253,6 +255,10 @@ export default function AdminPage() {
                                         <td className="p-4 font-medium">{user.name}</td>
                                         <td className="p-4 text-neutral-400">{user.phone}</td>
                                         <td className="p-4 text-neutral-400">{user.city}</td>
+                                        <td className="p-4 text-neutral-400 max-w-[150px] truncate" title={user.address}>
+                                            {user.address}
+                                        </td>
+                                        <td className="p-4 text-neutral-400">{user.zip || '-'}</td>
                                         <td className="p-4">
                                             <div className="flex gap-1 flex-wrap">
                                                 {(user as any)._sources?.map((src: string) => (
