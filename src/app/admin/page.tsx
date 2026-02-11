@@ -326,35 +326,48 @@ export default function AdminPage() {
                             <div className="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden">
                                 <div className="p-4 border-b border-neutral-800 flex justify-between items-center bg-blue-900/10">
                                     <span className="text-sm font-bold text-blue-400 flex items-center gap-2">
-                                        <Archive className="w-4 h-4" /> ארכיון רשומות שמחקו ({archivedUsers.length})
+                                        <ShieldCheck className="w-4 h-4" /> יומן רישומים מלא (פעילים + מחוקים)
                                     </span>
-                                    <button onClick={() => downloadCSV(archivedUsers, 'archive')} className="text-xs bg-neutral-800 px-3 py-1 rounded border border-neutral-700">ייצוא ארכיון למחשב</button>
+                                    <button onClick={() => downloadCSV(archivedUsers, 'full_audit_log')} className="text-xs bg-neutral-800 px-3 py-1 rounded border border-neutral-700">ייצוא לוג מלא למחשב</button>
                                 </div>
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-right">
                                         <thead className="bg-neutral-950 text-neutral-300 text-sm">
                                             <tr>
                                                 <th className="p-4">שם מלא</th>
+                                                <th className="p-4">סטטוס</th>
                                                 <th className="p-4">טלפון</th>
                                                 <th className="p-4">עיר</th>
-                                                <th className="p-4">כתובת</th>
-                                                <th className="p-4">תאריך מחיקה</th>
+                                                <th className="p-4">תאריך</th>
                                                 <th className="p-4">מקור</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-neutral-800">
                                             {archivedUsers.map((user) => (
-                                                <tr key={user.id} className="text-neutral-400 group hover:bg-red-900/5">
+                                                <tr key={user.id} className={`text-neutral-400 group ${(user as any)._is_deleted ? 'bg-red-950/10' : 'bg-green-950/5'}`}>
                                                     <td className="p-4 text-white font-medium">{user.name}</td>
+                                                    <td className="p-4">
+                                                        {(user as any)._is_deleted ? (
+                                                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/10 text-red-500 border border-red-500/20">מחוק / בארכיון</span>
+                                                        ) : (
+                                                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/10 text-green-500 border border-green-500/20">פעיל</span>
+                                                        )}
+                                                    </td>
                                                     <td className="p-4">{user.phone}</td>
                                                     <td className="p-4">{user.city}</td>
-                                                    <td className="p-4">{user.address}</td>
-                                                    <td className="p-4 text-xs font-mono text-red-400/80">
-                                                        {new Date(user.deleted_at || '').toLocaleString('he-IL')}
+                                                    <td className="p-4 text-xs font-mono">
+                                                        {(user as any)._is_deleted ? (
+                                                            <div className="flex flex-col">
+                                                                <span className="text-red-400">נמחק: {new Date(user.deleted_at || '').toLocaleDateString('he-IL')}</span>
+                                                                <span className="text-[10px] opacity-50">נרשם: {new Date(user.created_at).toLocaleDateString('he-IL')}</span>
+                                                            </div>
+                                                        ) : (
+                                                            <span>נרשם: {new Date(user.created_at).toLocaleDateString('he-IL')}</span>
+                                                        )}
                                                     </td>
                                                     <td className="p-4">
                                                         <span className="text-[10px] px-2 py-0.5 rounded-full border border-neutral-700 uppercase">
-                                                            {user._source}
+                                                            {(user as any)._source}
                                                         </span>
                                                     </td>
                                                 </tr>
