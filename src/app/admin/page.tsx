@@ -253,7 +253,7 @@ export default function AdminPage() {
                                         <td className="p-4 font-medium">{user.name}</td>
                                         <td className="p-4 text-neutral-400">{user.phone}</td>
                                         <td className="p-4 text-neutral-400">{user.city}</td>
-                                        <td className="p-4 text-neutral-400 max-w-[150px] truncate" title={user.address}>
+                                        <td className="p-4 text-neutral-400">
                                             {user.address}
                                         </td>
                                         <td className="p-4 text-neutral-400">{user.zip || '-'}</td>
