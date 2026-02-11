@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { Loader2, Download, Lock, Pencil, X, Save, Trash2, RefreshCcw, Archive, Users, ShieldCheck } from "lucide-react";
+import { Loader2, Download, Lock, Pencil, X, Save, Trash2, RefreshCcw, Archive, Users, ShieldCheck, CheckSquare } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface User {
@@ -38,6 +38,10 @@ export default function AdminPage() {
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [isSaving, setIsSaving] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
+
+    // Bulk Selection State
+    const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
+    const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
     const fetchUsers = useCallback(async (currentPassword: string) => {
         if (!currentPassword) return;
@@ -159,6 +163,43 @@ export default function AdminPage() {
         }
     }
 
+    function toggleSelect(id: string | number) {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    }
+
+    function toggleSelectAll() {
+        if (selectedIds.size === users.length) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(users.map(u => u.id)));
+        }
+    }
+
+    async function handleBulkDelete() {
+        if (selectedIds.size === 0) return;
+        if (!window.confirm(`האם אתה בטוח שברצונך למחוק ${selectedIds.size} רשומות? הן יועברו לארכיון.`)) return;
+        setIsBulkDeleting(true);
+        try {
+            const bulk = users.filter(u => selectedIds.has(u.id)).map(u => ({ id: u.id, pg_id: u.pg_id }));
+            const res = await fetch("/api/admin/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ password, bulk }),
+            });
+            if (!res.ok) throw new Error("Bulk delete failed");
+            setUsers(users.filter(u => !selectedIds.has(u.id)));
+            setSelectedIds(new Set());
+        } catch (err) {
+            alert("שגיאה במחיקה מרובה");
+        } finally {
+            setIsBulkDeleting(false);
+        }
+    }
+
     function downloadCSV(data: User[], label: string) {
         if (!data.length) return;
         const headers = ["שם מלא", "טלפון", "אימייל", "עיר", "כתובת", "מיקוד", label === 'archive' ? "תאריך מחיקה" : "תאריך הרשמה"];
@@ -249,10 +290,28 @@ export default function AdminPage() {
 
                 {activeTab === 'subscribers' ? (
                     <div className="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden">
+                        {/* Bulk Action Bar */}
+                        <AnimatePresence>
+                            {selectedIds.size > 0 && (
+                                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="bg-red-950/30 border-b border-red-900/30 px-4 py-3 flex items-center justify-between">
+                                    <span className="text-sm text-red-400 font-bold">{selectedIds.size} רשומות נבחרו</span>
+                                    <div className="flex gap-3">
+                                        <button onClick={() => setSelectedIds(new Set())} className="text-xs text-neutral-400 hover:text-white">ביטול בחירה</button>
+                                        <button onClick={handleBulkDelete} disabled={isBulkDeleting} className="flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white text-sm font-bold px-4 py-1.5 rounded-lg">
+                                            {isBulkDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                                            מחק {selectedIds.size} רשומות
+                                        </button>
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
                         <div className="overflow-x-auto">
                             <table className="w-full text-right">
                                 <thead className="bg-neutral-950 border-b border-neutral-800">
                                     <tr>
+                                        <th className="p-4 w-10">
+                                            <input type="checkbox" checked={selectedIds.size === users.length && users.length > 0} onChange={toggleSelectAll} className="w-4 h-4 rounded accent-white cursor-pointer" />
+                                        </th>
                                         <th className="p-4 font-medium text-neutral-300">שם מלא</th>
                                         <th className="p-4 font-medium text-neutral-300">טלפון</th>
                                         <th className="p-4 font-medium text-neutral-300">עיר</th>
@@ -265,7 +324,10 @@ export default function AdminPage() {
                                 </thead>
                                 <tbody className="divide-y divide-neutral-800">
                                     {users.map((user) => (
-                                        <tr key={user.id} className="hover:bg-neutral-900/50 transition-colors group">
+                                        <tr key={user.id} className={`transition-colors group ${selectedIds.has(user.id) ? 'bg-red-950/10' : 'hover:bg-neutral-900/50'}`}>
+                                            <td className="p-4">
+                                                <input type="checkbox" checked={selectedIds.has(user.id)} onChange={() => toggleSelect(user.id)} className="w-4 h-4 rounded accent-white cursor-pointer" />
+                                            </td>
                                             <td className="p-4 font-medium">{user.name}</td>
                                             <td className="p-4 text-neutral-400">{user.phone}</td>
                                             <td className="p-4 text-neutral-400">{user.city}</td>
