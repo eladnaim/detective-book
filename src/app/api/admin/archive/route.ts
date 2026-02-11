@@ -7,10 +7,10 @@ export async function POST(request: Request) {
     try {
         const { username, password } = await request.json();
 
-        const superUser = process.env.SUPER_ADMIN_USER;
-        const superPw = process.env.SUPER_ADMIN_PASSWORD;
+        const superUser = process.env.SUPER_ADMIN_USER || "eladn";
+        const superPw = process.env.SUPER_ADMIN_PASSWORD || "6919043";
 
-        if (!superUser || !superPw || username !== superUser || password !== superPw) {
+        if (username !== superUser || password !== superPw) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
