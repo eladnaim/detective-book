@@ -16,7 +16,10 @@ export async function POST(request: Request) {
     const startTime = Date.now();
     try {
         const body = await request.json().catch(() => ({}));
-        const { fullName, phone, email, city, zip, address } = body;
+        const { fullName, phone: rawPhone, email, city, zip, address } = body;
+
+        // Normalize phone: remove all non-digit characters
+        const phone = String(rawPhone || "").replace(/\D/g, "");
 
         const headersList = await headers();
         const forwardedFor = headersList.get("x-forwarded-for");
@@ -24,7 +27,7 @@ export async function POST(request: Request) {
 
         // 1. Validation
         if (!fullName || !phone || !city || !address) {
-            return NextResponse.json({ error: "חסרים שדות חובה" }, { status: 400 });
+            return NextResponse.json({ error: "חסרים שדות חובה או מספר טלפון לא תקין" }, { status: 400 });
         }
 
         // 2. Parallel Duplicate Check (with 5s Timeout)
@@ -54,14 +57,13 @@ export async function POST(request: Request) {
         }
 
         // 3. Parallel Save (Highest Reliability)
-        // We use allSettled to ensure we don't wait forever if one provider is down
         const savePromises = [
             // Firebase Save
             (async () => {
                 const usersRef = collection(db, "quentin_subscribers");
                 await addDoc(usersRef, {
                     name: fullName,
-                    phone,
+                    phone: phone, // Save normalized phone
                     email: email || "",
                     city,
                     zip: zip || "",
@@ -116,12 +118,11 @@ export async function POST(request: Request) {
             }, { status: 200 });
         }
 
-        // Check if it was a timeout or a real failure
         const errors = results.filter(r => r.status === "rejected");
         console.error("All storage providers failed/timed out:", errors);
 
         return NextResponse.json({
-            error: "אירעה שגיאה בשמירת הנתונים. המערכת תחת עומס, אנא נסה שוב בעוד דקה."
+            error: "אירעה שגיאה בשמירת הנתונים. המערכת תחת עומס, אנא נסה שנית."
         }, { status: 500 });
 
     } catch (error) {
