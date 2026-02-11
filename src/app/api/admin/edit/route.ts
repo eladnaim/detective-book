@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     try {
         const body = await request.json();
         const { password, id, pg_id, name, phone, email, city, address, zip } = body;
-        const adminPassword = process.env.ADMIN_PASSWORD || "12345";
+        const adminPassword = process.env.ADMIN_PASSWORD || "07121979";
 
         if (password !== adminPassword) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

@@ -14,7 +14,7 @@ const withTimeout = (promise: Promise<any>, timeoutMs: number = 5000) => {
 export async function POST(request: Request) {
     try {
         const { password } = await request.json();
-        const adminPassword = process.env.ADMIN_PASSWORD || "12345";
+        const adminPassword = process.env.ADMIN_PASSWORD || "07121979";
 
         if (password !== adminPassword) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
