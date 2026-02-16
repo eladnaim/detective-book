@@ -223,7 +223,9 @@ export default function AdminPage() {
     }
 
     const groupedByCity = users.reduce((acc, user) => {
-        const city = user.city || "ללא עיר";
+        // Normalize city name: trim spaces and reduce multiple spaces to one
+        const rawCity = user.city || "ללא עיר";
+        const city = rawCity.trim().replace(/\s+/g, ' ');
         if (!acc[city]) acc[city] = [];
         acc[city].push(user);
         return acc;
