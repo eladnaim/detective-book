@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { Loader2, Download, Lock, Pencil, X, Save, Trash2, RefreshCcw, Archive, Users, ShieldCheck, CheckSquare } from "lucide-react";
+import { Loader2, Download, Lock, Pencil, X, Save, Trash2, RefreshCcw, Archive, Users, ShieldCheck, CheckSquare, Truck, CheckCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface User {
@@ -25,7 +25,7 @@ export default function AdminPage() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState("");
     const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
-    const [activeTab, setActiveTab] = useState<'subscribers' | 'archive'>('subscribers');
+    const [activeTab, setActiveTab] = useState<'subscribers' | 'archive' | 'delivery'>('subscribers');
 
     // Archive / Super Admin State
     const [isSuperAuthenticated, setIsSuperAuthenticated] = useState(false);
@@ -222,6 +222,15 @@ export default function AdminPage() {
         document.body.removeChild(link);
     }
 
+    const groupedByCity = users.reduce((acc, user) => {
+        const city = user.city || "ללא עיר";
+        if (!acc[city]) acc[city] = [];
+        acc[city].push(user);
+        return acc;
+    }, {} as Record<string, User[]>);
+
+    const sortedCities = Object.keys(groupedByCity).sort((a, b) => a.localeCompare(b, 'he'));
+
     if (!isAuthenticated) {
         return (
             <div className="min-h-screen bg-black flex items-center justify-center p-4" suppressHydrationWarning>
@@ -264,6 +273,13 @@ export default function AdminPage() {
                                 נרשמים ({users.length})
                             </button>
                             <button
+                                onClick={() => setActiveTab('delivery')}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-md transition-all ${activeTab === 'delivery' ? 'bg-white text-black font-bold' : 'text-neutral-400 hover:text-white'}`}
+                            >
+                                <Truck className="w-4 h-4" />
+                                צ'קליסט משלוחים
+                            </button>
+                            <button
                                 onClick={() => setActiveTab('archive')}
                                 className={`flex items-center gap-2 px-4 py-2 rounded-md transition-all ${activeTab === 'archive' ? 'bg-white text-black font-bold' : 'text-neutral-400 hover:text-white'}`}
                             >
@@ -273,23 +289,29 @@ export default function AdminPage() {
                         </div>
                     </div>
 
-                    {activeTab === 'subscribers' && (
-                        <div className="flex items-center gap-4">
+                    {activeTab !== 'archive' && (
+                        <div className="flex items-center gap-4 print:hidden">
                             <div className="text-right hidden sm:block">
                                 <p className="text-xs text-neutral-500">עדכון אחרון: {lastRefresh.toLocaleTimeString()}</p>
                             </div>
                             <button onClick={() => fetchUsers(password)} className="p-2 hover:bg-neutral-800 rounded-lg text-neutral-400">
                                 <RefreshCcw className="w-5 h-5" />
                             </button>
-                            <button onClick={() => downloadCSV(users, 'subscribers')} className="flex items-center gap-2 bg-neutral-800 hover:bg-neutral-700 px-4 py-2 rounded-lg text-sm transition-colors">
-                                <Download className="w-4 h-4" /> הורדה למחשב
-                            </button>
+                            {activeTab === 'delivery' ? (
+                                <button onClick={() => window.print()} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg text-sm font-bold transition-colors">
+                                    <Download className="w-4 h-4" /> ייצוא ל-PDF (הדפסה)
+                                </button>
+                            ) : (
+                                <button onClick={() => downloadCSV(users, 'subscribers')} className="flex items-center gap-2 bg-neutral-800 hover:bg-neutral-700 px-4 py-2 rounded-lg text-sm transition-colors">
+                                    <Download className="w-4 h-4" /> הורדה למחשב
+                                </button>
+                            )}
                         </div>
                     )}
                 </div>
 
                 {activeTab === 'subscribers' ? (
-                    <div className="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden">
+                    <div className="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden print:hidden">
                         {/* Bulk Action Bar */}
                         <AnimatePresence>
                             {selectedIds.size > 0 && (
@@ -351,6 +373,53 @@ export default function AdminPage() {
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                ) : activeTab === 'delivery' ? (
+                    <div className="space-y-8 print:text-black">
+                        <style jsx global>{`
+                            @media print {
+                                body { background: white !important; color: black !important; }
+                                .print\\:hidden { display: none !important; }
+                                .bg-neutral-900 { background: white !important; }
+                                .border-neutral-800 { border-color: #eee !important; }
+                                .text-white { color: black !important; }
+                                .text-neutral-400 { color: #666 !important; }
+                                .bg-black { background: white !important; }
+                                .rounded-2xl { border-radius: 0 !important; }
+                                .shadow-2xl { box-shadow: none !important; }
+                            }
+                        `}</style>
+                        {sortedCities.map(city => (
+                            <div key={city} className="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden print:border-b print:rounded-none">
+                                <div className="bg-white/5 px-6 py-4 border-b border-neutral-800 flex justify-between items-center print:bg-neutral-100">
+                                    <h2 className="text-xl font-bold flex items-center gap-2">
+                                        {city} <span className="text-sm font-normal text-neutral-500">({groupedByCity[city].length} משלוחים)</span>
+                                    </h2>
+                                </div>
+                                <div className="divide-y divide-neutral-800">
+                                    {groupedByCity[city].map((user, idx) => (
+                                        <div key={user.id} className="p-4 flex items-center justify-between hover:bg-white/5 transition-colors group">
+                                            <div className="flex items-center gap-4 flex-1">
+                                                <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center text-xs font-mono border border-neutral-700 print:border-black">
+                                                    {idx + 1}
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <p className="font-bold text-lg">{user.name}</p>
+                                                    <p className="text-sm text-neutral-400 flex items-center gap-4">
+                                                        <span>{user.address}</span>
+                                                        <span className="font-mono">{user.phone}</span>
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-2 group-hover:opacity-100 opacity-60 transition-opacity print:opacity-100">
+                                                <div className="w-6 h-6 border-2 border-neutral-600 rounded-md print:border-black print:w-5 print:h-5"></div>
+                                                <span className="text-xs text-neutral-500 print:hidden">בוצע</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 ) : (
                     <div className="space-y-6">
