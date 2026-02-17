@@ -28,16 +28,29 @@ export async function POST(request: Request) {
                 return querySnapshot.docs.map(doc => ({
                     id: doc.id,
                     ...doc.data(),
-                    _source: 'firebase'
+                    _source: 'firebase',
+                    delivered: !!(doc.data() as any).delivered
                 }));
             })(), 4000),
             withTimeout((async () => {
-                const { rows } = await sql`SELECT * FROM users ORDER BY created_at DESC`;
-                return rows.map(row => ({
-                    ...row,
-                    id: `pg-${row.id}`,
-                    _source: 'postgres'
-                }));
+                // Ensure column exists before query to avoid 500
+                try {
+                    const { rows } = await sql`SELECT *, CAST(delivered AS BOOLEAN) as delivered_bool FROM users ORDER BY created_at DESC`;
+                    return rows.map(row => ({
+                        ...row,
+                        id: `pg-${row.id}`,
+                        _source: 'postgres',
+                        delivered: !!row.delivered_bool
+                    }));
+                } catch (e) {
+                    const { rows } = await sql`SELECT * FROM users ORDER BY created_at DESC`;
+                    return rows.map(row => ({
+                        ...row,
+                        id: `pg-${row.id}`,
+                        _source: 'postgres',
+                        delivered: false
+                    }));
+                }
             })(), 4000)
         ]);
 

@@ -16,6 +16,7 @@ interface User {
     _sources?: string[];
     _source?: string;
     pg_id?: number | string;
+    delivered?: boolean;
 }
 
 export default function AdminPage() {
@@ -45,7 +46,7 @@ export default function AdminPage() {
 
     // Delivery & Search State
     const [searchQuery, setSearchQuery] = useState("");
-    const [completedDeliveries, setCompletedDeliveries] = useState<Set<string | number>>(new Set());
+    const [isTogglingDelivery, setIsTogglingDelivery] = useState<string | number | null>(null);
 
     const fetchUsers = useCallback(async (currentPassword: string) => {
         if (!currentPassword) return;
@@ -110,24 +111,35 @@ export default function AdminPage() {
             if (currentPass && activeTab === 'subscribers') fetchUsers(currentPass);
         }, 30000);
 
-        // Load completed deliveries from localStorage
-        const savedCompleted = localStorage.getItem("completed_deliveries");
-        if (savedCompleted) {
-            try {
-                setCompletedDeliveries(new Set(JSON.parse(savedCompleted)));
-            } catch (e) { console.error("Failed to load completed deliveries"); }
-        }
-
         return () => clearInterval(interval);
     }, [fetchUsers, activeTab]);
 
-    function toggleDeliveryComplete(id: string | number) {
-        setCompletedDeliveries(prev => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id); else next.add(id);
-            localStorage.setItem("completed_deliveries", JSON.stringify(Array.from(next)));
-            return next;
-        });
+    async function toggleDeliveryComplete(user: User) {
+        const newStatus = !user.delivered;
+        setIsTogglingDelivery(user.id);
+
+        try {
+            const res = await fetch("/api/admin/delivered", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    password,
+                    id: user.id,
+                    pg_id: user.pg_id,
+                    delivered: newStatus
+                }),
+            });
+
+            if (res.ok) {
+                setUsers(prev => prev.map(u => u.id === user.id ? { ...u, delivered: newStatus } : u));
+            } else {
+                alert("עדכון סטטוס נכשל");
+            }
+        } catch (err) {
+            alert("שגיאת תקשורת בשינוי סטטוס");
+        } finally {
+            setIsTogglingDelivery(null);
+        }
     }
 
     async function handleLogin(e: React.FormEvent) {
@@ -459,15 +471,18 @@ export default function AdminPage() {
                                                 </div>
                                             </div>
                                             <button
-                                                onClick={() => toggleDeliveryComplete(user.id)}
-                                                className={`flex items-center gap-2 transition-all p-2 rounded-lg ${completedDeliveries.has(user.id) ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'opacity-60 hover:opacity-100 hover:bg-white/5'} print:opacity-100`}
+                                                onClick={() => toggleDeliveryComplete(user)}
+                                                disabled={isTogglingDelivery === user.id}
+                                                className={`flex items-center gap-2 transition-all p-2 rounded-lg ${user.delivered ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'opacity-60 hover:opacity-100 hover:bg-white/5'} print:opacity-100 disabled:opacity-30`}
                                             >
-                                                {completedDeliveries.has(user.id) ? (
+                                                {isTogglingDelivery === user.id ? (
+                                                    <Loader2 className="w-6 h-6 animate-spin" />
+                                                ) : user.delivered ? (
                                                     <CheckCircle className="w-6 h-6" />
                                                 ) : (
                                                     <div className="w-6 h-6 border-2 border-neutral-600 rounded-md print:border-black"></div>
                                                 )}
-                                                <span className="text-xs print:hidden">{completedDeliveries.has(user.id) ? 'בוצע' : 'סמן כבוצע'}</span>
+                                                <span className="text-xs print:hidden">{user.delivered ? 'בוצע' : 'סמן כבוצע'}</span>
                                             </button>
                                         </div>
                                     ))}
