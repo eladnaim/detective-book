@@ -339,6 +339,24 @@ export default function AdminPage() {
                     )}
                 </div>
 
+                {(activeTab === 'subscribers' || activeTab === 'delivery') && (
+                    <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 flex flex-col md:flex-row gap-4 items-center print:hidden">
+                        <div className="relative flex-1 w-full">
+                            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                            <input
+                                type="text"
+                                placeholder="חיפוש לפי שם, טלפון או עיר..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full bg-black border border-neutral-800 rounded-lg py-2 pr-10 pl-4 text-sm focus:outline-none focus:ring-1 focus:ring-white/20"
+                            />
+                        </div>
+                        <div className="text-sm text-neutral-400">
+                            מציג {filteredUsers.length} מתוך {users.length} רשומות
+                        </div>
+                    </div>
+                )}
+
                 {activeTab === 'subscribers' ? (
                     <div className="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden print:hidden">
                         {/* Bulk Action Bar */}
@@ -374,7 +392,7 @@ export default function AdminPage() {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-neutral-800">
-                                    {users.map((user) => (
+                                    {filteredUsers.map((user) => (
                                         <tr key={user.id} className={`transition-colors group ${selectedIds.has(user.id) ? 'bg-red-950/10' : 'hover:bg-neutral-900/50'}`}>
                                             <td className="p-4">
                                                 <input type="checkbox" checked={selectedIds.has(user.id)} onChange={() => toggleSelect(user.id)} className="w-4 h-4 rounded accent-white cursor-pointer" />
@@ -405,23 +423,6 @@ export default function AdminPage() {
                     </div>
                 ) : activeTab === 'delivery' ? (
                     <div className="space-y-8 print:text-black">
-                        {/* Search Bar for Delivery */}
-                        <div className="bg-neutral-900 p-4 rounded-2xl border border-neutral-800 flex flex-col md:flex-row gap-4 items-center print:hidden">
-                            <div className="relative flex-1 w-full">
-                                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
-                                <input
-                                    type="text"
-                                    placeholder="חיפוש לפי שם, טלפון או עיר..."
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="w-full bg-black border border-neutral-800 rounded-lg py-2 pr-10 pl-4 text-sm focus:outline-none focus:ring-1 focus:ring-white/20"
-                                />
-                            </div>
-                            <div className="text-sm text-neutral-400">
-                                נמצאו {filteredUsers.length} רשומות
-                            </div>
-                        </div>
-
                         <style jsx global>{`
                             @media print {
                                 body { background: white !important; color: black !important; }
