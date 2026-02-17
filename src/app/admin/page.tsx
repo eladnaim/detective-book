@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { Loader2, Download, Lock, Pencil, X, Save, Trash2, RefreshCcw, Archive, Users, ShieldCheck, CheckSquare, Truck, CheckCircle, Search } from "lucide-react";
+import { Loader2, Download, Lock, Pencil, X, Save, Trash2, RefreshCcw, Archive, Users, ShieldCheck, Truck, CheckCircle, Search } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface User {
@@ -44,7 +44,7 @@ export default function AdminPage() {
     const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
     const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
-    // Delivery & Search State
+    // Search State
     const [searchQuery, setSearchQuery] = useState("");
     const [isTogglingDelivery, setIsTogglingDelivery] = useState<string | number | null>(null);
 
@@ -114,29 +114,28 @@ export default function AdminPage() {
         return () => clearInterval(interval);
     }, [fetchUsers, activeTab]);
 
-    async function toggleDeliveryComplete(user: User) {
-        const newStatus = !user.delivered;
+    async function markAsDelivered(user: User) {
+        if (!window.confirm("סימון 'בוצע' יעביר את הרשומה לארכיון וימחוק אותה מרשימת המשלוחים הפעילים. האם להמשיך?")) return;
         setIsTogglingDelivery(user.id);
 
         try {
-            const res = await fetch("/api/admin/delivered", {
+            const res = await fetch("/api/admin/delete", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     password,
                     id: user.id,
-                    pg_id: user.pg_id,
-                    delivered: newStatus
+                    pg_id: user.pg_id
                 }),
             });
 
             if (res.ok) {
-                setUsers(prev => prev.map(u => u.id === user.id ? { ...u, delivered: newStatus } : u));
+                setUsers(prev => prev.filter(u => u.id !== user.id));
             } else {
-                alert("עדכון סטטוס נכשל");
+                alert("נכשל בהעברה לארכיון");
             }
         } catch (err) {
-            alert("שגיאת תקשורת בשינוי סטטוס");
+            alert("שגיאת תקשורת");
         } finally {
             setIsTogglingDelivery(null);
         }
@@ -214,7 +213,12 @@ export default function AdminPage() {
 
     async function handleBulkDelete() {
         if (selectedIds.size === 0) return;
-        if (!window.confirm(`האם אתה בטוח שברצונך למחוק ${selectedIds.size} רשומות? הן יועברו לארכיון.`)) return;
+        const confirmMsg = activeTab === 'delivery'
+            ? `האם אתה בטוח שברצונך לסמן ${selectedIds.size} רשומות כ'בוצע'? הן יועברו לארכיון וימחקו מהרשימה.`
+            : `האם אתה בטוח שברצונך למחוק ${selectedIds.size} רשומות? הן יועברו לארכיון.`;
+
+        if (!window.confirm(confirmMsg)) return;
+
         setIsBulkDeleting(true);
         try {
             const bulk = users.filter(u => selectedIds.has(u.id)).map(u => ({ id: u.id, pg_id: u.pg_id }));
@@ -223,11 +227,11 @@ export default function AdminPage() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ password, bulk }),
             });
-            if (!res.ok) throw new Error("Bulk delete failed");
+            if (!res.ok) throw new Error("Bulk action failed");
             setUsers(users.filter(u => !selectedIds.has(u.id)));
             setSelectedIds(new Set());
         } catch (err) {
-            alert("שגיאה במחיקה מרובה");
+            alert("שגיאה בפעולה מרובה");
         } finally {
             setIsBulkDeleting(false);
         }
@@ -262,7 +266,6 @@ export default function AdminPage() {
     );
 
     const groupedByCity = filteredUsers.reduce((acc, user) => {
-        // Normalize city name: trim spaces and reduce multiple spaces to one
         const rawCity = user.city || "ללא עיר";
         const city = rawCity.trim().replace(/\s+/g, ' ');
         if (!acc[city]) acc[city] = [];
@@ -351,6 +354,7 @@ export default function AdminPage() {
                     )}
                 </div>
 
+                {/* Common Search Bar */}
                 {(activeTab === 'subscribers' || activeTab === 'delivery') && (
                     <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 flex flex-col md:flex-row gap-4 items-center print:hidden">
                         <div className="relative flex-1 w-full">
@@ -369,9 +373,26 @@ export default function AdminPage() {
                     </div>
                 )}
 
+                {/* Bulk Action Tabs */}
+                {activeTab === 'delivery' && (
+                    <AnimatePresence>
+                        {selectedIds.size > 0 && (
+                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="bg-blue-950/30 border border-blue-900/30 rounded-2xl px-4 py-3 flex items-center justify-between mb-6 print:hidden">
+                                <span className="text-sm text-blue-400 font-bold">{selectedIds.size} משלוחים נבחרו</span>
+                                <div className="flex gap-3">
+                                    <button onClick={() => setSelectedIds(new Set())} className="text-xs text-neutral-400 hover:text-white">ביטול בחירה</button>
+                                    <button onClick={handleBulkDelete} disabled={isBulkDeleting} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold px-4 py-1.5 rounded-lg transition-all">
+                                        {isBulkDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
+                                        סמן {selectedIds.size} רשומות כ'בוצע' (ארכיון)
+                                    </button>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                )}
+
                 {activeTab === 'subscribers' ? (
                     <div className="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden print:hidden">
-                        {/* Bulk Action Bar */}
                         <AnimatePresence>
                             {selectedIds.size > 0 && (
                                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="bg-red-950/30 border-b border-red-900/30 px-4 py-3 flex items-center justify-between">
@@ -457,8 +478,16 @@ export default function AdminPage() {
                                 </div>
                                 <div className="divide-y divide-neutral-800">
                                     {groupedByCity[city].map((user, idx) => (
-                                        <div key={user.id} className="p-4 flex items-center justify-between hover:bg-white/5 transition-colors group">
+                                        <div key={user.id} className={`p-4 flex items-center justify-between transition-colors group ${selectedIds.has(user.id) ? 'bg-blue-950/20' : 'hover:bg-white/5'}`}>
                                             <div className="flex items-center gap-4 flex-1">
+                                                <div className="print:hidden">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedIds.has(user.id)}
+                                                        onChange={() => toggleSelect(user.id)}
+                                                        className="w-5 h-5 rounded accent-blue-500 cursor-pointer"
+                                                    />
+                                                </div>
                                                 <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center text-xs font-mono border border-neutral-700 print:border-black">
                                                     {idx + 1}
                                                 </div>
@@ -471,18 +500,16 @@ export default function AdminPage() {
                                                 </div>
                                             </div>
                                             <button
-                                                onClick={() => toggleDeliveryComplete(user)}
+                                                onClick={() => markAsDelivered(user)}
                                                 disabled={isTogglingDelivery === user.id}
-                                                className={`flex items-center gap-2 transition-all p-2 rounded-lg ${user.delivered ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'opacity-60 hover:opacity-100 hover:bg-white/5'} print:opacity-100 disabled:opacity-30`}
+                                                className={`flex items-center gap-2 transition-all p-2 rounded-lg opacity-60 hover:opacity-100 hover:bg-green-500/10 hover:text-green-500 print:opacity-100 disabled:opacity-30`}
                                             >
                                                 {isTogglingDelivery === user.id ? (
                                                     <Loader2 className="w-6 h-6 animate-spin" />
-                                                ) : user.delivered ? (
-                                                    <CheckCircle className="w-6 h-6" />
                                                 ) : (
                                                     <div className="w-6 h-6 border-2 border-neutral-600 rounded-md print:border-black"></div>
                                                 )}
-                                                <span className="text-xs print:hidden">{user.delivered ? 'בוצע' : 'סמן כבוצע'}</span>
+                                                <span className="text-xs print:hidden">סמן כבוצע</span>
                                             </button>
                                         </div>
                                     ))}
@@ -558,7 +585,7 @@ export default function AdminPage() {
                                                     <td className="p-4 text-xs font-mono">
                                                         {(user as any)._is_deleted ? (
                                                             <div className="flex flex-col">
-                                                                <span className="text-red-400">נמחק: {new Date(user.deleted_at || '').toLocaleDateString('he-IL')}</span>
+                                                                <span className="text-red-400 font-bold">נמחק: {new Date(user.deleted_at || '').toLocaleDateString('he-IL')}</span>
                                                                 <span className="text-[10px] opacity-50">נרשם: {new Date(user.created_at).toLocaleDateString('he-IL')}</span>
                                                             </div>
                                                         ) : (
@@ -567,7 +594,7 @@ export default function AdminPage() {
                                                     </td>
                                                     <td className="p-4">
                                                         <span className="text-[10px] px-2 py-0.5 rounded-full border border-neutral-700 uppercase">
-                                                            {(user as any)._source}
+                                                            {user._source}
                                                         </span>
                                                     </td>
                                                 </tr>
