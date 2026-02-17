@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { Loader2, Download, Lock, Pencil, X, Save, Trash2, RefreshCcw, Archive, Users, ShieldCheck, CheckSquare, Truck, CheckCircle } from "lucide-react";
+import { Loader2, Download, Lock, Pencil, X, Save, Trash2, RefreshCcw, Archive, Users, ShieldCheck, CheckSquare, Truck, CheckCircle, Search } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface User {
@@ -42,6 +42,10 @@ export default function AdminPage() {
     // Bulk Selection State
     const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
     const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
+    // Delivery & Search State
+    const [searchQuery, setSearchQuery] = useState("");
+    const [completedDeliveries, setCompletedDeliveries] = useState<Set<string | number>>(new Set());
 
     const fetchUsers = useCallback(async (currentPassword: string) => {
         if (!currentPassword) return;
@@ -106,8 +110,25 @@ export default function AdminPage() {
             if (currentPass && activeTab === 'subscribers') fetchUsers(currentPass);
         }, 30000);
 
+        // Load completed deliveries from localStorage
+        const savedCompleted = localStorage.getItem("completed_deliveries");
+        if (savedCompleted) {
+            try {
+                setCompletedDeliveries(new Set(JSON.parse(savedCompleted)));
+            } catch (e) { console.error("Failed to load completed deliveries"); }
+        }
+
         return () => clearInterval(interval);
     }, [fetchUsers, activeTab]);
+
+    function toggleDeliveryComplete(id: string | number) {
+        setCompletedDeliveries(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            localStorage.setItem("completed_deliveries", JSON.stringify(Array.from(next)));
+            return next;
+        });
+    }
 
     async function handleLogin(e: React.FormEvent) {
         e.preventDefault();
@@ -222,7 +243,13 @@ export default function AdminPage() {
         document.body.removeChild(link);
     }
 
-    const groupedByCity = users.reduce((acc, user) => {
+    const filteredUsers = users.filter(user =>
+        user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        user.phone.includes(searchQuery) ||
+        user.city.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    const groupedByCity = filteredUsers.reduce((acc, user) => {
         // Normalize city name: trim spaces and reduce multiple spaces to one
         const rawCity = user.city || "ללא עיר";
         const city = rawCity.trim().replace(/\s+/g, ' ');
@@ -378,6 +405,23 @@ export default function AdminPage() {
                     </div>
                 ) : activeTab === 'delivery' ? (
                     <div className="space-y-8 print:text-black">
+                        {/* Search Bar for Delivery */}
+                        <div className="bg-neutral-900 p-4 rounded-2xl border border-neutral-800 flex flex-col md:flex-row gap-4 items-center print:hidden">
+                            <div className="relative flex-1 w-full">
+                                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                                <input
+                                    type="text"
+                                    placeholder="חיפוש לפי שם, טלפון או עיר..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full bg-black border border-neutral-800 rounded-lg py-2 pr-10 pl-4 text-sm focus:outline-none focus:ring-1 focus:ring-white/20"
+                                />
+                            </div>
+                            <div className="text-sm text-neutral-400">
+                                נמצאו {filteredUsers.length} רשומות
+                            </div>
+                        </div>
+
                         <style jsx global>{`
                             @media print {
                                 body { background: white !important; color: black !important; }
@@ -413,10 +457,17 @@ export default function AdminPage() {
                                                     </p>
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-2 group-hover:opacity-100 opacity-60 transition-opacity print:opacity-100">
-                                                <div className="w-6 h-6 border-2 border-neutral-600 rounded-md print:border-black print:w-5 print:h-5"></div>
-                                                <span className="text-xs text-neutral-500 print:hidden">בוצע</span>
-                                            </div>
+                                            <button
+                                                onClick={() => toggleDeliveryComplete(user.id)}
+                                                className={`flex items-center gap-2 transition-all p-2 rounded-lg ${completedDeliveries.has(user.id) ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'opacity-60 hover:opacity-100 hover:bg-white/5'} print:opacity-100`}
+                                            >
+                                                {completedDeliveries.has(user.id) ? (
+                                                    <CheckCircle className="w-6 h-6" />
+                                                ) : (
+                                                    <div className="w-6 h-6 border-2 border-neutral-600 rounded-md print:border-black"></div>
+                                                )}
+                                                <span className="text-xs print:hidden">{completedDeliveries.has(user.id) ? 'בוצע' : 'סמן כבוצע'}</span>
+                                            </button>
                                         </div>
                                     ))}
                                 </div>
