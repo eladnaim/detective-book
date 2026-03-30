@@ -14,102 +14,29 @@ const withTimeout = (promise: Promise<any>, timeoutMs: number = 5000) => {
 export async function POST(request: Request) {
     try {
         const { password } = await request.json();
-        const adminPassword = process.env.ADMIN_PASSWORD || "07121979";
+        const adminPassword = "07121979"; // Hardcoded for reliability on Netlify
 
         if (password !== adminPassword) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        // Parallel Fetch with STRICT TIMEOUTS to prevent hanging
-        const [fbResult, pgResult] = await Promise.allSettled([
-            withTimeout((async () => {
-                const q = query(collection(db, "quentin_subscribers"), orderBy("created_at", "desc"));
-                const querySnapshot = await getDocs(q);
-                return querySnapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data(),
-                    _source: 'firebase',
-                    delivered: !!(doc.data() as any).delivered
-                }));
-            })(), 4000),
-            withTimeout((async () => {
-                // Ensure column exists before query to avoid 500
-                try {
-                    const { rows } = await sql`SELECT *, CAST(delivered AS BOOLEAN) as delivered_bool FROM users ORDER BY created_at DESC`;
-                    return rows.map(row => ({
-                        ...row,
-                        id: `pg-${row.id}`,
-                        _source: 'postgres',
-                        delivered: !!row.delivered_bool
-                    }));
-                } catch (e) {
-                    const { rows } = await sql`SELECT * FROM users ORDER BY created_at DESC`;
-                    return rows.map(row => ({
-                        ...row,
-                        id: `pg-${row.id}`,
-                        _source: 'postgres',
-                        delivered: false
-                    }));
-                }
-            })(), 4000)
-        ]);
+        // ONLY Firebase for Netlify persistence
+        const q = query(collection(db, "quentin_subscribers"), orderBy("created_at", "desc"));
+        const querySnapshot = await getDocs(q);
+        const users = querySnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            _source: 'firebase',
+            _sources: ['firebase'],
+            delivered: !!(doc.data() as any).delivered
+        }));
 
-        const mergedUsers = new Map();
-        let fbTotal = 0;
-        let pgTotal = 0;
-
-        // Process Firebase
-        if (fbResult.status === 'fulfilled') {
-            fbResult.value.forEach((user: any) => {
-                const key = `${user.phone}-${user.name}`;
-                mergedUsers.set(key, {
-                    ...user,
-                    _sources: ['firebase']
-                });
-                fbTotal++;
-            });
-        } else {
-            console.error("Firebase fetch failed or timed out:", fbResult.reason);
-        }
-
-        // Process Postgres
-        if (pgResult.status === 'fulfilled') {
-            pgResult.value.forEach((row: any) => {
-                const key = `${row.phone}-${row.name}`;
-                if (mergedUsers.has(key)) {
-                    const existing = mergedUsers.get(key);
-                    mergedUsers.set(key, {
-                        ...existing,
-                        pg_id: row.id,
-                        _sources: [...existing._sources, 'postgres']
-                    });
-                } else {
-                    mergedUsers.set(key, {
-                        ...row,
-                        _sources: ['postgres']
-                    });
-                }
-                pgTotal++;
-            });
-        } else {
-            console.error("Postgres fetch failed or timed out:", pgResult.reason);
-        }
-
-        const finalUsers = Array.from(mergedUsers.values()).sort((a, b) =>
-            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        );
-
-        // Even if one failed, we return what we have (Resilience)
         return NextResponse.json({
-            users: finalUsers,
+            users: users,
             counts: {
-                firebase: fbTotal,
-                postgres: pgTotal,
-                total_unique: finalUsers.length
-            },
-            status: {
-                firebase: fbResult.status,
-                postgres: pgResult.status
+                firebase: users.length,
+                postgres: 0,
+                total_unique: users.length
             }
         }, { status: 200 });
 
