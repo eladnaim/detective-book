@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
-import { sql } from "@vercel/postgres";
+import { db } from "@/lib/firebase";
+import { collection, addDoc, query, where, getDocs } from "firebase/firestore";
 
 // Simple Rate Limiting
 const rateLimitMap = new Map<string, { count: number, lastReset: number }>();
@@ -33,22 +34,31 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "חסרים שדות חובה" }, { status: 400 });
         }
 
-        // Duplicate Check (Postgres)
+        const usersRef = collection(db, "quentin_subscribers");
+
+        // Duplicate Check (Firestore)
         try {
-            const resPhone = await sql`SELECT id FROM users WHERE phone = ${phone} LIMIT 1`;
-            if (resPhone.rows.length > 0) {
+            const qPhone = query(usersRef, where("phone", "==", phone));
+            const snapPhone = await getDocs(qPhone);
+            if (!snapPhone.empty) {
                 return NextResponse.json({ error: "מספר טלפון זה כבר רשום" }, { status: 409 });
             }
         } catch (dbError) {
             console.error("DB Check Error:", dbError);
         }
 
-        // Save to Postgres
+        // Save to Firestore
         try {
-            await sql`
-                INSERT INTO users (name, phone, email, city, zip, address, ip_address)
-                VALUES (${fullName}, ${phone}, ${email || ""}, ${city}, ${zip || ""}, ${address}, ${ip})
-            `;
+            await addDoc(usersRef, {
+                name: fullName,
+                phone,
+                email: email || "",
+                city,
+                zip: zip || "",
+                address,
+                ip_address: ip,
+                created_at: new Date().toISOString()
+            });
         } catch (dbError: any) {
             console.error("DB Insert Error:", dbError);
             return NextResponse.json({ error: "שגיאת שמירה במסד נתונים" }, { status: 500 });

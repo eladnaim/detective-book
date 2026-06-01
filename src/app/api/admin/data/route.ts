@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { sql } from "@vercel/postgres";
+import { db } from "@/lib/firebase";
+import { collection, getDocs, query, orderBy } from "firebase/firestore";
 
 export async function POST(request: Request) {
     try {
@@ -10,15 +11,24 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        // Fetch users from Vercel Postgres
+        // Fetch users from Firestore
         try {
-            const { rows } = await sql`SELECT * FROM users ORDER BY created_at DESC`;
+            const q = query(collection(db, "quentin_subscribers"), orderBy("created_at", "desc"));
+            const querySnapshot = await getDocs(q);
+            const users = querySnapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                _source: 'firebase',
+                _sources: ['firebase'],
+                delivered: !!(doc.data() as any).delivered
+            }));
+            
             return NextResponse.json({
-                users: rows,
+                users: users,
                 counts: {
-                    postgres: rows.length,
-                    firebase: 0,
-                    total_unique: rows.length
+                    firebase: users.length,
+                    postgres: 0,
+                    total_unique: users.length
                 }
             }, { status: 200 });
         } catch (dbError: any) {
